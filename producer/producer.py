@@ -37,7 +37,7 @@ def stream_data(producer, topic, csv_file):
             return
         
         df = df.dropna(subset=['clean_text'])
-        df = df.head(150)  # Increased sample size slightly
+        df = df.head(1000)  # Increased sample size slightly
 
         for index, row in df.iterrows():
             # Create a message that matches the consumer's schema

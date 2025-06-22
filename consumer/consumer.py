@@ -9,7 +9,7 @@ os.environ['PYSPARK_SUBMIT_ARGS'] = '--packages org.apache.spark:spark-sql-kafka
 
 from pyspark.sql import SparkSession
 from pyspark.sql.functions import (
-    col, from_json, split, explode, length, avg, count, desc, udf
+    col, from_json, split, explode, length, avg, count, desc, udf,current_timestamp,window
 )
 from pyspark.sql.types import StructType, StructField, StringType, IntegerType, FloatType
 import nltk
@@ -86,6 +86,25 @@ def process_unified_batch(df, epoch_id):
     end_time = time.time()
     print(f"--- Batch {epoch_id} processing finished in {end_time - start_time:.2f} seconds ---")
 
+    # Add a processing time column
+    df_with_time = df.withColumn("processing_time", current_timestamp())
+
+    # Explode words
+    words_df = df_with_time.select(
+        explode(split(col("text"), " ")).alias("word"),
+        col("processing_time")
+    ).filter(length(col("word")) > 1)
+
+    # Sliding window: 5 minutes window, sliding every 1 minute
+    windowed_word_counts = words_df.groupBy(
+        window(col("processing_time"), "5 minutes", "1 minute"),
+        col("word")
+    ).count().orderBy(desc("count"))
+
+    print("\n=== Top 5 Trending Words in Last 5 Minutes (Sliding Window) ===")
+    windowed_word_counts.show(5, truncate=False)
+
+
 def create_spark_session():
     """Create a resource-constrained and stable Spark session."""
     return SparkSession.builder \
@@ -109,6 +128,7 @@ def main():
             .option("kafka.bootstrap.servers", "localhost:9092") \
             .option("subscribe", "text_data") \
             .option("startingOffsets", "earliest") \
+            .option("maxOffsetsPerTrigger",50) \
             .load()
 
         schema = StructType([
