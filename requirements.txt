@@ -1,0 +1,9 @@
+kafka-python
+pandas
+pyspark==3.2.4
+requests
+nltk==3.8.1
+matplotlib==3.8.3
+seaborn==0.13.2
+kagglehub
+python-dotenv==1.0.1 
