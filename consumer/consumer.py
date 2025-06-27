@@ -1,5 +1,6 @@
 import os
 import sys
+import csv
 import time
 
 # Point Spark to the Python executable in the current virtual environment
@@ -9,12 +10,21 @@ os.environ['PYSPARK_SUBMIT_ARGS'] = '--packages org.apache.spark:spark-sql-kafka
 
 from pyspark.sql import SparkSession
 from pyspark.sql.functions import (
-    col, from_json, split, explode, length, avg, count, desc, udf,current_timestamp,window
+    col, from_json, split, explode, length, avg, count, desc, udf,current_timestamp,window,lower
 )
-from pyspark.sql.types import StructType, StructField, StringType, IntegerType, FloatType
+from pyspark.sql.types import StructType, StructField, StringType, IntegerType, FloatType,ArrayType,BooleanType,DoubleType
 import nltk
 from nltk.sentiment.vader import SentimentIntensityAnalyzer
 import logging
+from nltk.corpus import stopwords
+stopword_set = set(stopwords.words('english'))
+
+from pyspark.sql.functions import udf
+def is_not_stopword(word):
+    return word not in stopword_set
+
+is_not_stopword_udf = udf(is_not_stopword, BooleanType())
+
 
 # Configure logging
 logging.basicConfig(level=logging.WARN)
@@ -40,10 +50,7 @@ def get_sentiment(text):
         return 0.0
 
 def process_unified_batch(df, epoch_id):
-    """
-    A single, unified function to process each micro-batch of data. This fulfills the
-    requirement of using a multiprocessing library (Spark) for batch processing.
-    """
+    import time
     start_time = time.time()
     print(f"\n--- Processing Batch {epoch_id} ---")
 
@@ -57,9 +64,21 @@ def process_unified_batch(df, epoch_id):
 
     print(f"Status: Received {record_count} new records. Starting analysis...")
 
+    # Calculate latency at the start and keep the DataFrame for later CSV writing
+    avg_latency = None
+    print(df.columns)
+    if "produced_at" in df.columns:
+        print('hello')
+        from pyspark.sql.functions import avg as _avg
+        df_with_latency = df.withColumn("latency", (time.time() - col("produced_at")))
+        avg_latency = df_with_latency.agg(_avg("latency")).collect()[0][0]
+        print(f"Average latency for batch: {avg_latency:.2f} seconds")
+    else:
+        df_with_latency = df
+
     # --- Sentiment Analysis (MapReduce Implemented) ---
     print("\n=== Sentiment Analysis Summary ===")
-    sentiment_df = df.withColumn("sentiment", get_sentiment(col("text")))
+    sentiment_df = df_with_latency.withColumn("sentiment", get_sentiment(col("text")))
     sentiment_summary = sentiment_df.agg(
         avg("sentiment").alias("average_sentiment"),
         count("*").alias("tweet_count")
@@ -67,7 +86,7 @@ def process_unified_batch(df, epoch_id):
     sentiment_summary.show()
 
     # --- Word Count & Hashtag Trends (MapReduce Implemented) ---
-    words_df = df.select(explode(split(col("text"), " ")).alias("word")) \
+    words_df = df_with_latency.select(explode(split(col("text"), " ")).alias("word")) \
                  .filter(length(col("word")) > 1)
     words_df.persist()
 
@@ -80,30 +99,41 @@ def process_unified_batch(df, epoch_id):
                              .groupBy("word").count().orderBy(desc("count"))
     hashtag_counts.show(5, truncate=False)
 
-    df.unpersist()
-    words_df.unpersist()
-    
-    end_time = time.time()
-    print(f"--- Batch {epoch_id} processing finished in {end_time - start_time:.2f} seconds ---")
-
     # Add a processing time column
-    df_with_time = df.withColumn("processing_time", current_timestamp())
+    df_with_time = df_with_latency.withColumn("processing_time", current_timestamp())
 
-    # Explode words
+    # Explode words and convert to lowercase
     words_df = df_with_time.select(
-        explode(split(col("text"), " ")).alias("word"),
+        explode(split(lower(col("text")), " ")).alias("word"),
         col("processing_time")
     ).filter(length(col("word")) > 1)
 
-    # Sliding window: 5 minutes window, sliding every 1 minute
+    # Filter out stopwords using UDF
+    words_df = words_df.filter(is_not_stopword_udf(col("word")))
+
+    # 5-minute tumbling window (no sliding)
     windowed_word_counts = words_df.groupBy(
-        window(col("processing_time"), "5 minutes", "1 minute"),
+        window(col("processing_time"), "5 minutes", "5 minutes"),
         col("word")
     ).count().orderBy(desc("count"))
 
-    print("\n=== Top 5 Trending Words in Last 5 Minutes (Sliding Window) ===")
+    print("\n=== Top 5 Words in Last 5 Minutes (Excluding Stopwords) ===")
     windowed_word_counts.show(5, truncate=False)
 
+    df.unpersist()
+    end_time = time.time()
+    batch_duration = end_time - start_time
+    throughput = record_count / batch_duration if batch_duration > 0 else 0
+    print(f"Throughput: {throughput:.2f} messages/second")
+
+    # Save results to CSV for plotting
+    with open("performance_results.csv", "a", newline="") as f:
+        writer = csv.writer(f)
+        if f.tell() == 0:
+            writer.writerow(["epoch_id", "record_count", "batch_duration", "throughput", "avg_latency"])
+        writer.writerow([epoch_id, record_count, batch_duration, throughput, avg_latency])
+
+    print(f"--- Batch {epoch_id} processing finished in {batch_duration:.2f} seconds ---")
 
 def create_spark_session():
     """Create a resource-constrained and stable Spark session."""
@@ -133,7 +163,8 @@ def main():
 
         schema = StructType([
             StructField("id", IntegerType(), True),
-            StructField("text", StringType(), True)
+            StructField("text", StringType(), True),
+             StructField("produced_at", DoubleType(), True)
         ])
         parsed_df = kafka_df.select(
             from_json(col("value").cast("string"), schema).alias("data")
@@ -158,4 +189,4 @@ def main():
             print("Spark session stopped successfully.")
 
 if __name__ == "__main__":
-    main() 
+    main()

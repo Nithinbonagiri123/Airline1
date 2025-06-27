@@ -37,13 +37,14 @@ def stream_data(producer, topic, csv_file):
             return
         
         df = df.dropna(subset=['clean_text'])
-        df = df.head(1000)  # Increased sample size slightly
+        df = df.tail(1000)  # Increased sample size slightly
 
         for index, row in df.iterrows():
             # Create a message that matches the consumer's schema
             message = {
                 "id": index,
-                "text": row['clean_text']
+                "text": row['clean_text'],
+                "produced_at":time.time(),
             }
             producer.send(topic, value=message)
             logger.info(f"Sent: {message}")

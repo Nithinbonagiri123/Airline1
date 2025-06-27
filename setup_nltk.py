@@ -14,7 +14,8 @@ def download_nltk_data():
         'punkt',
         'vader_lexicon',
         'averaged_perceptron_tagger',
-        'wordnet'
+        'wordnet',
+        'stopwords',
     ]
     
     print("Downloading NLTK data packages...")
