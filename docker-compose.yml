@@ -6,6 +6,8 @@ services:
       ZOOKEEPER_TICK_TIME: 2000
     ports:
       - "2181:2181"
+    networks:
+      - kafka-network
 
   kafka:
     image: confluentinc/cp-kafka:7.3.0
@@ -21,4 +23,43 @@ services:
       KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
       KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
       KAFKA_LISTENERS: PLAINTEXT://kafka:29092,PLAINTEXT_HOST://0.0.0.0:9092
-      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true" 
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
+    networks:
+      - kafka-network
+      
+  producer:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    depends_on:
+      - kafka
+    command: python3 /app/producer/producer.py
+    working_dir: /app
+    environment:
+      - KAFKA_BOOTSTRAP_SERVERS=kafka:29092
+    volumes:
+      - ./:/app
+    networks:
+      - kafka-network
+    restart: on-failure
+
+  consumer:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    depends_on:
+      - kafka
+      - producer
+    command: python3 /app/consumer/consumer.py
+    working_dir: /app
+    environment:
+      - KAFKA_BOOTSTRAP_SERVERS=kafka:29092
+    volumes:
+      - ./:/app
+    networks:
+      - kafka-network
+    restart: on-failure
+
+networks:
+  kafka-network:
+    driver: bridge

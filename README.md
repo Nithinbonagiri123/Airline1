@@ -20,6 +20,8 @@ This project implements a scalable text data processing system that performs rea
 
 ## Setup Instructions
 
+### Option 1: Local Setup
+
 **IMPORTANT**: The following steps must be performed in order.
 
 1. **Clone the repository**:
@@ -63,6 +65,46 @@ docker-compose up -d
 python test_setup.py
 ```
 
+### Option 2: Docker Compose Setup (Recommended)
+
+This project includes Docker configuration to run both the producer and consumer services along with Kafka and Zookeeper in containers.
+
+1. **Clone the repository**:
+
+```bash
+git clone <repository-url>
+cd kafka-project
+```
+
+2. **Build the Docker images**:
+
+```bash
+docker-compose build
+```
+
+3. **Start all services**:
+
+```bash
+docker-compose up -d
+```
+
+4. **View logs from the services**:
+
+```bash
+# View all logs
+docker-compose logs -f
+
+# View logs from a specific service
+docker-compose logs -f producer
+docker-compose logs -f consumer
+```
+
+5. **Stop all services**:
+
+```bash
+docker-compose down
+```
+
 ## Project Structure
 
 ```
@@ -73,11 +115,14 @@ kafka-project/
 │   └── consumer.py       # Spark Streaming consumer for processing
 ├── setup_nltk.py        # NLTK data setup script
 ├── test_setup.py        # System setup verification
-├── docker-compose.yml    # Docker configuration for Kafka
+├── docker-compose.yml    # Docker configuration for all services
+├── Dockerfile           # Single Dockerfile for both producer and consumer
 └── requirements.txt      # Python dependencies
 ```
 
 ## Running the Application
+
+### Local Execution
 
 **IMPORTANT**: The consumer application relies on the NLP data downloaded in the setup steps. Ensure you have run `python setup_nltk.py` successfully before starting the consumer.
 
@@ -93,6 +138,22 @@ kafka-project/
    ```bash
    python producer/producer.py
    ```
+
+### Docker Execution
+
+With Docker Compose, both the producer and consumer services are started automatically along with Kafka and Zookeeper:
+
+```bash
+# Build and start all services
+docker-compose build
+docker-compose up -d
+
+# Monitor the application logs
+docker-compose logs -f
+
+# When finished, stop all services
+docker-compose down
+```
 
 ## Components
 
@@ -117,6 +178,7 @@ The application outputs processing results to the console in real-time, showing:
 
 ## Stopping the Application
 
+### Local Execution
 1. Stop the producer and consumer applications (Ctrl+C)
 2. Stop Kafka:
 
@@ -124,9 +186,16 @@ The application outputs processing results to the console in real-time, showing:
 docker-compose down
 ```
 
+### Docker Execution
+Stop all containers with a single command:
+
+```bash
+docker-compose down
+```
+
 ## Troubleshooting
 
-If you encounter any issues:
+### Local Setup Issues
 
 1. Make sure all dependencies are installed:
 
@@ -150,4 +219,34 @@ docker ps
 
 ```bash
 python test_setup.py
+```
+
+### Docker Setup Issues
+
+1. Check container logs for errors:
+
+```bash
+docker-compose logs -f
+# Or for a specific service
+docker-compose logs -f consumer
+```
+
+2. Verify all containers are running:
+
+```bash
+docker-compose ps
+```
+
+3. Restart the services if needed:
+
+```bash
+docker-compose restart
+```
+
+4. If problems persist, rebuild the images:
+
+```bash
+docker-compose down
+docker-compose build --no-cache
+docker-compose up -d
 ```

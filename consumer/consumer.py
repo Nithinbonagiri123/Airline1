@@ -152,10 +152,14 @@ def main():
     try:
         spark = create_spark_session()
         spark.sparkContext.setLogLevel("ERROR")
+        
+        # Use environment variable for Kafka connection or default to localhost for local development
+        kafka_server = os.environ.get('KAFKA_BOOTSTRAP_SERVERS', 'localhost:9092')
+        logger.info(f"Connecting to Kafka at {kafka_server}")
 
         kafka_df = spark.readStream \
             .format("kafka") \
-            .option("kafka.bootstrap.servers", "localhost:9092") \
+            .option("kafka.bootstrap.servers", kafka_server) \
             .option("subscribe", "text_data") \
             .option("startingOffsets", "earliest") \
             .option("maxOffsetsPerTrigger",50) \

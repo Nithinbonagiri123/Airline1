@@ -13,10 +13,14 @@ logger = logging.getLogger(__name__)
 
 def create_producer():
     retries = 12
+    # Use environment variable for Kafka connection or default to localhost for local development
+    kafka_server = os.environ.get('KAFKA_BOOTSTRAP_SERVERS', 'localhost:9092')
+    logger.info(f"Connecting to Kafka at {kafka_server}")
+    
     for i in range(retries):
         try:
             producer = KafkaProducer(
-                bootstrap_servers='localhost:9092',
+                bootstrap_servers=kafka_server,
                 value_serializer=lambda v: json.dumps(v).encode('utf-8')
             )
             logger.info("Kafka producer created successfully.")
