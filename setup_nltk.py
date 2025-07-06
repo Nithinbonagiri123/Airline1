@@ -10,7 +10,7 @@ else:
 
 def ensure_nltk_resources():
     """
-    Fetch all NLTK resources required for news article analysis.
+    Fetch all NLTK resources required for airline customer review analysis.
     This includes sentiment, tokenization, and stopword modules.
     """
     resources = [

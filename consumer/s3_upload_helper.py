@@ -3,7 +3,7 @@ import logging
 
 def transfer_to_cloud_storage(local_data_file, target_bucket, cloud_storage_path):
     """
-    Transfer a local data file to a cloud storage bucket at the specified path.
+    Transfer a local data file (e.g., airline customer review analytics results) to a cloud storage bucket at the specified path.
     Args:
         local_data_file (str): Filesystem path to the local data file.
         target_bucket (str): Name of the cloud storage bucket.

@@ -1,4 +1,4 @@
-# Core dependencies for News Article Streaming Pipeline
+# Core dependencies for Airline Customer Review Streaming Pipeline
 pyspark==3.2.4          # Distributed data processing
 pandas                  # Data manipulation
 nltk==3.8.1             # NLP (sentiment, stopwords)

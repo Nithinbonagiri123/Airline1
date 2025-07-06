@@ -39,7 +39,7 @@ os.environ["PYSPARK_SUBMIT_ARGS"] = "--packages org.apache.spark:spark-sql-kafka
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("data_stream_consumer")
 
-# Prepare stopword set for filtering
+# Prepare stopword set for filtering airline customer review words
 STOPWORDS = set(stopwords.words("english"))
 
 def is_not_stopword(word):
@@ -48,7 +48,7 @@ def is_not_stopword(word):
 
 remove_stopwords_udf = spark_udf(is_not_stopword, SparkBoolType())
 
-# Sentiment analysis UDF
+# Sentiment analysis UDF for airline customer reviews
 def compute_sentiment(text):
     if not hasattr(compute_sentiment, "analyzer"):
         compute_sentiment.analyzer = SentimentIntensityAnalyzer()
@@ -64,7 +64,7 @@ sentiment_udf = spark_udf(compute_sentiment, SparkFloatType())
 
 def batch_analysis(df, batch_num):
     """
-    Analyze a batch of records for sentiment and trending words.
+    Analyze a batch of airline customer reviews for sentiment and trending words.
     """
     start_time = time.time()
     logger.info(f"[Batch {batch_num}] Analysis started.")
@@ -155,7 +155,7 @@ def batch_analysis(df, batch_num):
     print(f"Throughput: {throughput:.2f} articles/sec")
 
     # CSV logging (refactored)
-    metrics_file = "news_metrics.csv"
+    metrics_file = "airline_customer_review_metrics.csv"
     write_header = (
         not os.path.exists(metrics_file) or os.path.getsize(metrics_file) == 0
     )
@@ -168,14 +168,14 @@ def batch_analysis(df, batch_num):
         writer.writerow([batch_idx, num_records, elapsed, throughput, avg_delay])
 
     # S3 upload (refactored)
-    s3_upload(metrics_file, "news-analytics-bucket", "metrics/news_metrics.csv")
+    s3_upload(metrics_file, "airline-customer-review-bucket", "metrics/airline_customer_review_metrics.csv")
     print(f"### Batch {batch_idx} complete ({elapsed:.2f} s) ###")
 
 
 def build_spark_session():
     """Instantiate a Spark session with resource constraints."""
     return (
-        SparkSession.builder.appName("NewsArticleStreamConsumer")
+        SparkSession.builder.appName("AirlineCustomerReviewStreamConsumer")
         .master("local[2]")
         .config("spark.driver.host", "127.0.0.1")
         .config("spark.driver.memory", "1g")
@@ -188,27 +188,28 @@ def build_spark_session():
 
 def main_stream():
     """
-    Main entrypoint for the news article streaming consumer.
-    Reads from Kafka, parses news article records, and launches the analysis pipeline.
+    Main entrypoint for the airline customer review streaming consumer.
+    Reads from Kafka, parses airline customer review records, and launches the analysis pipeline.
     """
     spark = None
     try:
         spark = build_spark_session()
         spark.sparkContext.setLogLevel("ERROR")
-        # Kafka connection (topic and server name refactored for news context)
-        kafka_broker = os.environ.get("KAFKA_NEWS_SERVERS", "localhost:9092")
+        # Kafka connection (topic and server name refactored for airline customer review context)
+        kafka_broker = os.environ.get("KAFKA_AIRLINE_REVIEW_SERVERS", "localhost:9092")
         log.info(f"Connecting to Kafka at {kafka_broker}")
         news_topic = "news_articles_stream"
-        # Define schema for news articles
-        news_schema = SchemaType(
-            [
-                SchemaField("article_id", IntCol(), True),
-                SchemaField("title", StringCol(), True),
-                SchemaField("content", StringCol(), True),
-                SchemaField("author", StringCol(), True),
-                SchemaField("published_at", DoubleCol(), True),
-            ]
-        )
+        # Define schema for airline reviews
+        review_schema = SparkStructType([
+            SparkStructField("AirLine_Name", SparkStringType(), True),
+            SparkStructField("Rating - 10", SparkStringType(), True),
+            SparkStructField("Title", SparkStringType(), True),
+            SparkStructField("Name", SparkStringType(), True),
+            SparkStructField("Date", SparkStringType(), True),
+            SparkStructField("Review", SparkStringType(), True),
+            SparkStructField("Recommond", SparkStringType(), True),
+            SparkStructField("timestamp", SparkDoubleType(), True),
+        ])
         kafka_stream = (
             spark.readStream.format("kafka")
             .option("kafka.bootstrap.servers", kafka_broker)
@@ -217,12 +218,12 @@ def main_stream():
             .option("maxOffsetsPerTrigger", 50)
             .load()
         )
-        parsed_articles = kafka_stream.select(
-            parse_json(select_col("value").cast("string"), news_schema).alias("article")
-        ).select("article.*")
+        parsed_reviews = kafka_stream.select(
+            spark_from_json(spark_col("value").cast("string"), review_schema).alias("review")
+        ).select("review.*")
         # Start streaming analysis
         query = (
-            parsed_articles.writeStream.foreachBatch(analyze_article_batch)
+            parsed_reviews.writeStream.foreachBatch(batch_analysis)
             .trigger(processingTime="15 seconds")
             .option("checkpointLocation", "news_stream_checkpoint")
             .start()

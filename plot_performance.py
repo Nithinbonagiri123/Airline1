@@ -1,7 +1,7 @@
 import pandas as pd
 import matplotlib.pyplot as plt
 
-# Load performance data for streaming pipeline
+# Load performance data for airline customer review streaming pipeline
 perf_data = pd.read_csv("news_metrics.csv")
 
 plt.style.use('ggplot')
@@ -21,7 +21,7 @@ plots[1].set_xlabel('Batch Number')
 plots[1].set_ylabel('Average Delay (seconds)')
 plots[1].grid(True, linestyle=':', alpha=0.5)
 
-plt.suptitle('Streaming Pipeline: Performance Overview', fontsize=15, fontweight='bold')
+plt.suptitle('Airline Customer Review Streaming Pipeline: Performance Overview', fontsize=15, fontweight='bold')
 plt.tight_layout(rect=[0, 0.03, 1, 0.95])
 plt.savefig("stream_performance_summary.png", dpi=150)
 print("Saved performance summary as stream_performance_summary.png")

@@ -1,14 +1,14 @@
-# Real-Time Data Streaming & Analytics Platform
+# Airline Customer Review Streaming & Analytics Platform
 
-This project delivers a scalable pipeline for real-time data ingestion, processing, and analytics using Apache Kafka and PySpark. Designed for flexibility, it can handle any tabular dataset, perform live sentiment evaluation, extract trending terms, and monitor batch performance metrics.
+This project delivers a scalable pipeline for real-time ingestion, processing, and analytics of airline customer review data using Apache Kafka and PySpark. It is designed specifically to handle airline review datasets, perform live sentiment analysis, extract trending terms from customer feedback, and monitor batch performance metrics relevant to customer experience in the airline industry.
 
 ## Features
 
-- **Continuous data streaming** via Kafka topics
+- **Continuous streaming of airline customer reviews** via Kafka topics
 - **Distributed processing** with Spark (PySpark)
-- **Automated sentiment analysis** and keyword frequency extraction
-- **Batch-level metrics logging** and cloud (S3) archiving
-- **Performance visualization** for throughput and latency
+- **Automated sentiment analysis** and keyword frequency extraction on review text
+- **Batch-level metrics logging** and cloud (S3) archiving for review analytics
+- **Performance visualization** for throughput and latency of review processing
 
 ## Prerequisites
 
@@ -51,11 +51,11 @@ This project delivers a scalable pipeline for real-time data ingestion, processi
 
 ### Running the Pipeline
 
-- **Stream data with the producer:**
+- **Stream airline review data with the producer:**
   ```bash
   python producer/producer.py
   ```
-- **Start the analytics consumer:**
+- **Start the analytics consumer for airline reviews:**
   ```bash
   python consumer/consumer.py
   ```

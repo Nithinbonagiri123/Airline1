@@ -44,7 +44,7 @@ def validate_python_environment():
     return all_packages_found
 
 def run_environment_checks():
-    print("\nData Processing Pipeline: Environment Checks\n")
+    print("\nAirline Customer Review Processing Pipeline: Environment Checks\n")
     python_environment_valid = validate_python_environment()
     kafka_setup_valid = validate_kafka_setup()
     print("\n--- Environment Check Results ---")
