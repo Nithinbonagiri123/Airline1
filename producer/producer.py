@@ -106,7 +106,7 @@ def download_kaggle_dataset(dataset_path, filename):
 
 
 def main():
-    logging.basicConfig(level=logging.INFO)
+    logging.basicConfig(level=logging.DEBUG)
     producer = setup_kafka_producer()
     if not producer:
         return
@@ -119,9 +119,10 @@ def main():
             producer,
             topic,
             csv_path,
-            delay=0.5,
-            row_limit=1000,
+            delay=0,  # No delay for quick test
+            row_limit=2000,  # Only 5 rows for quick test
         )
+        producer.flush()  # Ensure all messages are sent!
     producer.close()
     logging.getLogger("dataset_streamer").info("Kafka producer connection closed.")
 
