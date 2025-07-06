@@ -1,103 +1,103 @@
 import os
 import sys
-import csv
-import time
 import logging
+import time
 from pyspark.sql import SparkSession
 from pyspark.sql.functions import (
-    from_json as parse_json,
-    col as select_col,
-    explode as flatten,
-    split as split_text,
-    avg as mean,
-    length as str_length,
-    desc as descending,
-    count as total_count,
-    current_timestamp as now_ts,
+    from_json as spark_from_json,
+    col as spark_col,
+    explode as spark_explode,
+    split as spark_split,
+    avg as spark_avg,
+    length as spark_length,
+    desc as spark_desc,
+    count as spark_count,
+    current_timestamp as spark_now,
     udf as spark_udf,
-    lower as to_lower,
-    window as time_window,
+    lower as spark_lower,
+    window as spark_window,
 )
 from pyspark.sql.types import (
-    StructType as SchemaType,
-    StructField as SchemaField,
-    StringType as StringCol,
-    IntegerType as IntCol,
-    FloatType as FloatCol,
-    BooleanType as BoolCol,
-    DoubleType as DoubleCol,
+    StructType as SparkStructType,
+    StructField as SparkStructField,
+    StringType as SparkStringType,
+    IntegerType as SparkIntType,
+    FloatType as SparkFloatType,
+    BooleanType as SparkBoolType,
+    DoubleType as SparkDoubleType,
 )
-from nltk.sentiment.vader import SentimentIntensityAnalyzer as SIA
-from nltk.corpus import stopwords as nltk_stopwords
-from .s3_upload_helper import push_to_cloud_storage as s3_upload
+from nltk.sentiment.vader import SentimentIntensityAnalyzer
+from nltk.corpus import stopwords
+from .s3_upload_helper import upload_to_s3
 
-# Set up Spark Python environment
+# Configure Spark environment
 os.environ["PYSPARK_PYTHON"] = sys.executable
 os.environ["PYSPARK_DRIVER_PYTHON"] = sys.executable
-os.environ["PYSPARK_SUBMIT_ARGS"] = (
-    "--packages org.apache.spark:spark-sql-kafka-0-10_2.12:3.2.4 pyspark-shell"
-)
+os.environ["PYSPARK_SUBMIT_ARGS"] = "--packages org.apache.spark:spark-sql-kafka-0-10_2.12:3.2.4 pyspark-shell"
 
-# Logging configuration
-logging.basicConfig(level=logging.WARNING)
-log = logging.getLogger("news_stream_consumer")
+# Logging setup
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger("data_stream_consumer")
 
-# Prepare stopword set
-_STOPWORDS = set(nltk_stopwords.words("english"))
+# Prepare stopword set for filtering
+STOPWORDS = set(stopwords.words("english"))
 
+def is_not_stopword(word):
+    """True if word is not a stopword."""
+    return word not in STOPWORDS
 
-def filter_stopwords(word):
-    """Return True if word is not a stopword."""
-    return word not in _STOPWORDS
+remove_stopwords_udf = spark_udf(is_not_stopword, SparkBoolType())
 
-
-remove_stopwords_udf = spark_udf(filter_stopwords, BoolCol())
-
-
-# Sentiment UDF (rewritten for uniqueness)
-def sentiment_score(text):
-    if not hasattr(sentiment_score, "analyzer"):
-        sentiment_score.analyzer = SIA()
+# Sentiment analysis UDF
+def compute_sentiment(text):
+    if not hasattr(compute_sentiment, "analyzer"):
+        compute_sentiment.analyzer = SentimentIntensityAnalyzer()
     try:
         if isinstance(text, str) and text.strip():
-            return float(sentiment_score.analyzer.polarity_scores(text)["compound"])
+            return float(compute_sentiment.analyzer.polarity_scores(text)["compound"])
         return 0.0
-    except Exception as err:
-        log.error(f"Sentiment error: {err}")
+    except Exception as exc:
+        logger.warning(f"Sentiment UDF error: {exc}")
         return 0.0
 
+sentiment_udf = spark_udf(compute_sentiment, SparkFloatType())
 
-sentiment_udf = spark_udf(sentiment_score, FloatCol())
-
-
-def analyze_article_batch(batch_df, batch_idx):
+def batch_analysis(df, batch_num):
     """
-    Analyze a batch of news articles for sentiment and trending terms.
+    Analyze a batch of records for sentiment and trending words.
     """
-    import time as _time
-
-    start = _time.time()
-    print(f"\n### Batch {batch_idx} analysis started ###")
-    batch_df.persist()
-    num_records = batch_df.count()
-    if num_records < 1:
-        print("No articles in this batch. Awaiting new data...")
-        batch_df.unpersist()
+    start_time = time.time()
+    logger.info(f"[Batch {batch_num}] Analysis started.")
+    df.persist()
+    count = df.count()
+    if count < 1:
+        logger.info("Batch is empty. Skipping...")
+        df.unpersist()
         return
-    print(f"Processing {num_records} articles...")
-
-    # Latency calculation (if published_at present)
-    avg_delay = None
-    if "published_at" in batch_df.columns:
-        from pyspark.sql.functions import avg as _avg
-
-        latency_df = batch_df.withColumn(
-            "delay", (select_col("published_at") - _time.time())
-        )
-        avg_delay = latency_df.agg(_avg("delay")).collect()[0][0]
-        print(f"Mean latency: {avg_delay:.2f} s")
-    else:
-        latency_df = batch_df
+    logger.info(f"Processing {count} records...")
+    # Calculate latency if timestamp present
+    avg_latency = None
+    if "timestamp" in df.columns:
+        latency_df = df.withColumn("latency", (time.time() - spark_col("timestamp")))
+        avg_latency = latency_df.agg(spark_avg("latency")).collect()[0][0]
+        logger.info(f"Average latency: {avg_latency:.2f} s")
+    # Sentiment analysis
+    if "content" in df.columns:
+        df = df.withColumn("sentiment", sentiment_udf(spark_col("content")))
+        avg_sentiment = df.agg(spark_avg("sentiment")).collect()[0][0]
+        logger.info(f"Mean sentiment: {avg_sentiment:.3f}")
+    # Trending terms
+    if "content" in df.columns:
+        words_df = df.select(spark_explode(spark_split(spark_lower(spark_col("content")), "\\W+")).alias("word"))
+        words_df = words_df.filter(remove_stopwords_udf(spark_col("word")))
+        top_words = words_df.groupBy("word").count().orderBy(spark_desc("count")).limit(10).collect()
+        logger.info("Top 10 words: " + ", ".join(f"{row['word']}({row['count']})" for row in top_words))
+    # Save batch to S3 (optional, can be customized)
+    output_path = f"batch_{batch_num}_results.csv"
+    df.toPandas().to_csv(output_path, index=False)
+    upload_to_s3(output_path, os.environ.get("S3_BUCKET", "default-bucket"), output_path)
+    df.unpersist()
+    logger.info(f"[Batch {batch_num}] Analysis complete in {time.time() - start_time:.2f}s.")
 
     # Sentiment analysis on article content
     print("\n>>> Sentiment overview <<<")

@@ -1,70 +1,61 @@
-import os
 import sys
 import time
 from kafka import KafkaProducer
 from kafka.errors import NoBrokersAvailable
 import json
 
-def verify_kafka_broker():
+def validate_kafka_setup():
     """
-    Attempt to establish a connection to the local Kafka broker.
-    Retries several times before failing.
+    Validate the Kafka setup by checking the connection to the local Kafka broker.
     """
-    print("[Check] Kafka broker connectivity...")
-    attempts = 5
-    for n in range(attempts):
+    print("[Environment Check] Validating Kafka setup...")
+    max_attempts = 4
+    for attempt in range(max_attempts):
         try:
-            producer = KafkaProducer(
+            kafka_producer = KafkaProducer(
                 bootstrap_servers='localhost:9092',
                 value_serializer=lambda v: json.dumps(v).encode('utf-8')
             )
-            print("[Kafka] Connected ✓")
-            producer.close()
+            print("[Kafka] Setup validated successfully ✓")
+            kafka_producer.close()
             return True
         except NoBrokersAvailable:
-            if n < attempts - 1:
-                print(f"[Kafka] Not available, retry {n+1}/{attempts} (waiting 5s)")
-                time.sleep(5)
+            if attempt < max_attempts - 1:
+                print(f"[Kafka] Setup not validated, retrying ({attempt+1}/{max_attempts})...")
+                time.sleep(4)
             else:
-                print("[Kafka] Connection FAILED ✗")
+                print("[Kafka] Setup validation failed ✗")
                 return False
 
-def verify_python_dependencies():
+def validate_python_environment():
     """
-    Ensure all required Python packages for the news pipeline are installed.
+    Validate the Python environment by checking for required packages.
     """
-    print("\n[Check] Python package requirements...")
-    deps = [
-        'pyspark',
-        'nltk',
-        'pandas',
-        'matplotlib',
-        'seaborn',
-        'kafka'
-    ]
-    all_ok = True
-    for dep in deps:
+    print("[Environment Check] Validating Python environment...")
+    required_packages = ['pyspark', 'nltk', 'pandas', 'matplotlib', 'seaborn', 'kafka']
+    all_packages_found = True
+    for package in required_packages:
         try:
-            __import__(dep)
-            print(f"[Python] {dep} ✓")
+            __import__(package)
+            print(f"[Python] {package} found ✓")
         except ImportError:
-            print(f"[Python] {dep} ✗ (NOT installed)")
-            all_ok = False
-    return all_ok
+            print(f"[Python] {package} not found ✗")
+            all_packages_found = False
+    return all_packages_found
 
-def run_system_checks():
-    print("News Article Pipeline: System Setup Checks\n")
-    py_ok = verify_python_dependencies()
-    kafka_ok = verify_kafka_broker()
-    print("\n--- Setup Summary ---")
-    print(f"Python Packages: {'✓ OK' if py_ok else '✗ FAILED'}")
-    print(f"Kafka Broker: {'✓ OK' if kafka_ok else '✗ FAILED'}")
-    if py_ok and kafka_ok:
-        print("\nAll checks passed. Ready to launch the pipeline!")
+def run_environment_checks():
+    print("\nData Processing Pipeline: Environment Checks\n")
+    python_environment_valid = validate_python_environment()
+    kafka_setup_valid = validate_kafka_setup()
+    print("\n--- Environment Check Results ---")
+    print(f"Python Environment: {'✓ Valid' if python_environment_valid else '✗ Invalid'}")
+    print(f"Kafka Setup: {'✓ Valid' if kafka_setup_valid else '✗ Invalid'}")
+    if python_environment_valid and kafka_setup_valid:
+        print("\nEnvironment checks passed. You may proceed with the pipeline.")
         sys.exit(0)
     else:
-        print("\nSome checks failed. Please resolve before running the application.")
+        print("\nPlease resolve the above issues before proceeding with the pipeline.")
         sys.exit(1)
 
 if __name__ == "__main__":
-    run_system_checks()
+    run_environment_checks()

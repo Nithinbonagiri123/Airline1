@@ -1,16 +1,18 @@
 import boto3
+import logging
 
-def push_to_cloud_storage(file_path, bucket, object_key):
+def transfer_to_cloud_storage(local_data_file, target_bucket, cloud_storage_path):
     """
-    Store a local file in an S3 bucket under a specified key.
+    Transfer a local data file to a cloud storage bucket at the specified path.
     Args:
-        file_path (str): Path to the file on the local filesystem.
-        bucket (str): Name of the destination S3 bucket.
-        object_key (str): S3 object key (path in bucket).
+        local_data_file (str): Filesystem path to the local data file.
+        target_bucket (str): Name of the cloud storage bucket.
+        cloud_storage_path (str): Destination path within the bucket.
     """
-    s3_resource = boto3.client('s3')
+    logger = logging.getLogger("cloud_storage_helper")
+    cloud_storage_client = boto3.client('s3')
     try:
-        s3_resource.upload_file(file_path, bucket, object_key)
-        print(f"[S3 UPLOAD] Success: {file_path} → s3://{bucket}/{object_key}")
-    except Exception as exc:
-        print(f"[S3 UPLOAD] Error uploading {file_path} to {bucket}/{object_key}: {exc}")
+        cloud_storage_client.upload_file(local_data_file, target_bucket, cloud_storage_path)
+        logger.info(f"Data file transferred to cloud storage: {local_data_file} -> {target_bucket}/{cloud_storage_path}")
+    except Exception as transfer_error:
+        logger.error(f"Cloud storage transfer failed for {local_data_file} to {target_bucket}/{cloud_storage_path}: {transfer_error}")

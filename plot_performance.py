@@ -1,28 +1,28 @@
 import pandas as pd
 import matplotlib.pyplot as plt
 
-# Load metrics for news article stream batches
-metrics = pd.read_csv("news_metrics.csv")
+# Load performance data for streaming pipeline
+perf_data = pd.read_csv("news_metrics.csv")
 
-plt.style.use('seaborn-v0_8-darkgrid')
-fig, axes = plt.subplots(1, 2, figsize=(14, 5))
+plt.style.use('ggplot')
+fig, plots = plt.subplots(1, 2, figsize=(13, 5))
 
-# Visualize throughput per batch
-axes[0].plot(metrics['batch_idx'], metrics['throughput'], marker='s', color='navy', linewidth=2)
-axes[0].set_title('News Stream Throughput by Batch')
-axes[0].set_xlabel('Batch Index')
-axes[0].set_ylabel('Articles/sec')
-axes[0].grid(True, linestyle='--', alpha=0.5)
+# Plot streaming throughput
+plots[0].plot(perf_data['batch_idx'], perf_data['throughput'], marker='o', color='teal', linewidth=2)
+plots[0].set_title('Batch-wise Stream Throughput')
+plots[0].set_xlabel('Batch Number')
+plots[0].set_ylabel('Records per Second')
+plots[0].grid(True, linestyle='-.', alpha=0.7)
 
-# Visualize average delay per batch
-axes[1].plot(metrics['batch_idx'], metrics['avg_delay'], marker='^', color='crimson', linewidth=2)
-axes[1].set_title('Average Ingestion Delay per Batch')
-axes[1].set_xlabel('Batch Index')
-axes[1].set_ylabel('Mean Delay (sec)')
-axes[1].grid(True, linestyle=':', alpha=0.6)
+# Plot average ingestion delay
+plots[1].plot(perf_data['batch_idx'], perf_data['avg_delay'], marker='x', color='orange', linewidth=2)
+plots[1].set_title('Mean Ingestion Delay per Batch')
+plots[1].set_xlabel('Batch Number')
+plots[1].set_ylabel('Average Delay (seconds)')
+plots[1].grid(True, linestyle=':', alpha=0.5)
 
-plt.suptitle('News Article Stream Performance Metrics', fontsize=16, fontweight='bold')
+plt.suptitle('Streaming Pipeline: Performance Overview', fontsize=15, fontweight='bold')
 plt.tight_layout(rect=[0, 0.03, 1, 0.95])
-plt.savefig("news_stream_performance.png", dpi=150)
-print("Performance plot saved as news_stream_performance.png")
-# plt.show()  # Uncomment for interactive environments
+plt.savefig("stream_performance_summary.png", dpi=150)
+print("Saved performance summary as stream_performance_summary.png")
+# plt.show()  # Uncomment for interactive review

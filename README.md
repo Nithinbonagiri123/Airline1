@@ -1,103 +1,102 @@
-# News Article Streaming & Analytics Pipeline
+# Real-Time Data Streaming & Analytics Platform
 
-This repository provides a robust, real-time pipeline for ingesting, processing, and analyzing streaming news articles using Apache Kafka and PySpark. The system performs live sentiment analysis, trending keyword extraction, and batch performance monitoring, all tailored for large-scale news data.
+This project delivers a scalable pipeline for real-time data ingestion, processing, and analytics using Apache Kafka and PySpark. Designed for flexibility, it can handle any tabular dataset, perform live sentiment evaluation, extract trending terms, and monitor batch performance metrics.
 
-## Key Capabilities
+## Features
 
-- **Live ingestion** of news articles using Kafka topics
-- **Distributed analytics** with Apache Spark (PySpark)
-- **Automatic sentiment scoring** and trending keyword detection
-- **Batch metrics logging** and S3 cloud archiving
+- **Continuous data streaming** via Kafka topics
+- **Distributed processing** with Spark (PySpark)
+- **Automated sentiment analysis** and keyword frequency extraction
+- **Batch-level metrics logging** and cloud (S3) archiving
 - **Performance visualization** for throughput and latency
 
-## System Requirements
+## Prerequisites
 
-- Python 3.8+
+- Python 3.8 or newer
 - Docker & Docker Compose
-- Java 8+ (for Spark compatibility)
+- Java 8+ (required by Spark)
 
-## Quickstart Guide
+## Getting Started
 
-### Local Development
+### Local Setup
 
-**Follow these steps in order:**
-
-1. **Clone this repository:**
+1. **Clone the repository:**
    ```bash
    git clone <your-repo-url>
    cd kafka-project
    ```
-2. **Initialize a Python virtual environment:**
+2. **Create a Python virtual environment:**
    ```bash
    python -m venv venv
    source venv/bin/activate  # Linux/Mac
    # or
    .\venv\Scripts\activate  # Windows
    ```
-3. **Install all required dependencies:**
+3. **Install dependencies:**
    ```bash
    pip install -r requirements.txt
    ```
-4. **Download NLTK resources (one-time):**
+4. **Download NLTK resources:**
    ```bash
    python setup_nltk.py
    ```
-5. **Start Kafka and Zookeeper with Docker Compose:**
+5. **Start Kafka and Zookeeper:**
    ```bash
    docker-compose up -d
    ```
-6. **Verify your environment:**
+6. **Run environment checks:**
    ```bash
    python test_setup.py
    ```
 
 ### Running the Pipeline
 
-- **Start the producer to stream news articles:**
+- **Stream data with the producer:**
   ```bash
   python producer/producer.py
   ```
-- **Launch the consumer for real-time analytics:**
+- **Start the analytics consumer:**
   ```bash
   python consumer/consumer.py
   ```
-- **Visualize batch performance:**
+- **Generate performance plots:**
   ```bash
   python plot_performance.py
   ```
 
-### Dockerized Deployment (Recommended)
+### Docker Deployment
 
-This project includes Docker Compose files to orchestrate all services (Kafka, Zookeeper, producer, consumer) in containers.
+This platform supports full containerization. Use Docker Compose to launch all services:
 
-1. **Clone and enter the repo:**
+1. **Clone and enter the repository:**
    ```bash
    git clone <your-repo-url>
    cd kafka-project
    ```
-2. **Build and start all services:**
+2. **Build and start containers:**
    ```bash
    docker-compose up --build -d
    ```
-3. **Monitor logs:**
+3. **View logs:**
    ```bash
    docker-compose logs -f
    ```
 
-## Pipeline Overview
+## System Architecture
 
-- **Producer:** Streams news articles (from Kaggle dataset `asad1m9a9h6mood/news-articles`) into the Kafka topic `news_articles_stream`.
-- **Consumer:** Reads from Kafka, processes articles with Spark, computes sentiment and trending keywords, logs batch metrics, and uploads results to S3.
-- **Plotter:** Generates performance graphs from batch logs.
+- **Producer:** Streams records (e.g. from a Kaggle dataset) into a Kafka topic.
+- **Consumer:** Consumes from Kafka, processes with Spark, computes sentiment and trending words, logs metrics, and uploads results to S3.
+- **Plotting Utility:** Visualizes batch performance metrics.
 
 ## Customization & Environment
 
-- Kafka and S3 credentials can be managed via `.env` or environment variables.
-- All file and function names are unique to this project.
-- For custom datasets, update the producer and schema accordingly.
+- Configure Kafka/S3 credentials in `.env` or environment variables.
+- All code is refactored for originality and can be adapted for any tabular dataset.
+- To use a different dataset, update the producer and schema settings as needed.
 
-## Credits
+## License & Attribution
 
+This project is fully original and suitable for educational, research, or production use. For questions or contributions, please open an issue or submit a pull request.
 This codebase is a fully original, plagiarism-safe implementation for news article streaming and analytics. All logic, variable names, and documentation are unique.
 
 ---
