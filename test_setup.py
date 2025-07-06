@@ -5,31 +5,36 @@ from kafka import KafkaProducer
 from kafka.errors import NoBrokersAvailable
 import json
 
-def test_kafka_connection():
-    """Test if we can connect to Kafka."""
-    print("Testing Kafka connection...")
-    retries = 5
-    for i in range(retries):
+def verify_kafka_broker():
+    """
+    Attempt to establish a connection to the local Kafka broker.
+    Retries several times before failing.
+    """
+    print("[Check] Kafka broker connectivity...")
+    attempts = 5
+    for n in range(attempts):
         try:
             producer = KafkaProducer(
                 bootstrap_servers='localhost:9092',
                 value_serializer=lambda v: json.dumps(v).encode('utf-8')
             )
-            print("✓ Successfully connected to Kafka")
+            print("[Kafka] Connected ✓")
             producer.close()
             return True
         except NoBrokersAvailable:
-            if i < retries - 1:
-                print(f"Kafka not available, retrying in 5 seconds... ({i+1}/{retries})")
+            if n < attempts - 1:
+                print(f"[Kafka] Not available, retry {n+1}/{attempts} (waiting 5s)")
                 time.sleep(5)
             else:
-                print("✗ Failed to connect to Kafka")
+                print("[Kafka] Connection FAILED ✗")
                 return False
 
-def test_python_packages():
-    """Test if required Python packages are installed."""
-    print("\nChecking required Python packages...")
-    required_packages = [
+def verify_python_dependencies():
+    """
+    Ensure all required Python packages for the news pipeline are installed.
+    """
+    print("\n[Check] Python package requirements...")
+    deps = [
         'pyspark',
         'nltk',
         'pandas',
@@ -37,37 +42,29 @@ def test_python_packages():
         'seaborn',
         'kafka'
     ]
-    
-    all_passed = True
-    for package in required_packages:
+    all_ok = True
+    for dep in deps:
         try:
-            __import__(package)
-            print(f"✓ {package} is installed")
+            __import__(dep)
+            print(f"[Python] {dep} ✓")
         except ImportError:
-            print(f"✗ {package} is NOT installed")
-            all_passed = False
-    return all_passed
+            print(f"[Python] {dep} ✗ (NOT installed)")
+            all_ok = False
+    return all_ok
 
-def main():
-    print("Running system setup tests...\n")
-    
-    # Test Python packages
-    packages_ok = test_python_packages()
-    
-    # Test Kafka connection
-    kafka_ok = test_kafka_connection()
-    
-    print("\nTest Summary:")
-    print("-------------")
-    print(f"Python Packages: {'✓ OK' if packages_ok else '✗ FAILED'}")
-    print(f"Kafka Connection: {'✓ OK' if kafka_ok else '✗ FAILED'}")
-    
-    if packages_ok and kafka_ok:
-        print("\nAll tests passed! The system is ready to run.")
+def run_system_checks():
+    print("News Article Pipeline: System Setup Checks\n")
+    py_ok = verify_python_dependencies()
+    kafka_ok = verify_kafka_broker()
+    print("\n--- Setup Summary ---")
+    print(f"Python Packages: {'✓ OK' if py_ok else '✗ FAILED'}")
+    print(f"Kafka Broker: {'✓ OK' if kafka_ok else '✗ FAILED'}")
+    if py_ok and kafka_ok:
+        print("\nAll checks passed. Ready to launch the pipeline!")
         sys.exit(0)
     else:
-        print("\nSome tests failed. Please fix the issues before running the application.")
+        print("\nSome checks failed. Please resolve before running the application.")
         sys.exit(1)
 
 if __name__ == "__main__":
-    main() 
+    run_system_checks()

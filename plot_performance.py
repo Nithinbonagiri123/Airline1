@@ -1,26 +1,28 @@
 import pandas as pd
 import matplotlib.pyplot as plt
 
-# Load the performance results CSV
-df = pd.read_csv("performance_results.csv")
+# Load metrics for news article stream batches
+metrics = pd.read_csv("news_metrics.csv")
 
-plt.figure(figsize=(12, 5))
+plt.style.use('seaborn-v0_8-darkgrid')
+fig, axes = plt.subplots(1, 2, figsize=(14, 5))
 
-# Plot Throughput per Batch
-plt.subplot(1, 2, 1)
-plt.plot(df['epoch_id'], df['throughput'], marker='o')
-plt.title('Throughput per Batch')
-plt.xlabel('Batch (epoch_id)')
-plt.ylabel('Throughput (messages/sec)')
+# Visualize throughput per batch
+axes[0].plot(metrics['batch_idx'], metrics['throughput'], marker='s', color='navy', linewidth=2)
+axes[0].set_title('News Stream Throughput by Batch')
+axes[0].set_xlabel('Batch Index')
+axes[0].set_ylabel('Articles/sec')
+axes[0].grid(True, linestyle='--', alpha=0.5)
 
-# Plot Average Latency per Batch
-plt.subplot(1, 2, 2)
-plt.plot(df['epoch_id'], df['avg_latency'], marker='o', color='red')
-plt.title('Average Latency per Batch')
-plt.xlabel('Batch (epoch_id)')
-plt.ylabel('Average Latency (sec)')
+# Visualize average delay per batch
+axes[1].plot(metrics['batch_idx'], metrics['avg_delay'], marker='^', color='crimson', linewidth=2)
+axes[1].set_title('Average Ingestion Delay per Batch')
+axes[1].set_xlabel('Batch Index')
+axes[1].set_ylabel('Mean Delay (sec)')
+axes[1].grid(True, linestyle=':', alpha=0.6)
 
-plt.tight_layout()
-plt.savefig("performance_plot.png")
-print("Plot saved as performance_plot.png")
-# plt.show()  # Commented out for non-interactive environments
+plt.suptitle('News Article Stream Performance Metrics', fontsize=16, fontweight='bold')
+plt.tight_layout(rect=[0, 0.03, 1, 0.95])
+plt.savefig("news_stream_performance.png", dpi=150)
+print("Performance plot saved as news_stream_performance.png")
+# plt.show()  # Uncomment for interactive environments

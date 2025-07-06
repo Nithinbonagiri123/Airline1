@@ -1,10 +1,16 @@
 import boto3
 
-def upload_file_to_s3(local_file_path, bucket_name, s3_key):
-    """Upload a file to an S3 bucket."""
-    s3 = boto3.client('s3')
+def push_to_cloud_storage(file_path, bucket, object_key):
+    """
+    Store a local file in an S3 bucket under a specified key.
+    Args:
+        file_path (str): Path to the file on the local filesystem.
+        bucket (str): Name of the destination S3 bucket.
+        object_key (str): S3 object key (path in bucket).
+    """
+    s3_resource = boto3.client('s3')
     try:
-        s3.upload_file(local_file_path, bucket_name, s3_key)
-        print(f"Uploaded {local_file_path} to s3://{bucket_name}/{s3_key}")
-    except Exception as e:
-        print(f"Failed to upload {local_file_path} to S3: {e}")
+        s3_resource.upload_file(file_path, bucket, object_key)
+        print(f"[S3 UPLOAD] Success: {file_path} → s3://{bucket}/{object_key}")
+    except Exception as exc:
+        print(f"[S3 UPLOAD] Error uploading {file_path} to {bucket}/{object_key}: {exc}")

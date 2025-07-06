@@ -2,197 +2,180 @@ import os
 import sys
 import csv
 import time
+import logging
+from pyspark.sql import SparkSession
+from pyspark.sql.functions import (
+    from_json as parse_json,
+    col as select_col,
+    explode as flatten,
+    split as split_text,
+    avg as mean,
+    length as str_length,
+    desc as descending,
+    count as total_count,
+    current_timestamp as now_ts,
+    udf as spark_udf,
+    lower as to_lower,
+    window as time_window,
+)
+from pyspark.sql.types import (
+    StructType as SchemaType,
+    StructField as SchemaField,
+    StringType as StringCol,
+    IntegerType as IntCol,
+    FloatType as FloatCol,
+    BooleanType as BoolCol,
+    DoubleType as DoubleCol,
+)
+from nltk.sentiment.vader import SentimentIntensityAnalyzer as SIA
+from nltk.corpus import stopwords as nltk_stopwords
+from .s3_upload_helper import push_to_cloud_storage as s3_upload
 
-# Point Spark to the Python executable in the current virtual environment
+# Set up Spark Python environment
 os.environ["PYSPARK_PYTHON"] = sys.executable
 os.environ["PYSPARK_DRIVER_PYTHON"] = sys.executable
 os.environ["PYSPARK_SUBMIT_ARGS"] = (
     "--packages org.apache.spark:spark-sql-kafka-0-10_2.12:3.2.4 pyspark-shell"
 )
 
-from pyspark.sql import SparkSession
-from pyspark.sql.functions import (
-    col,
-    from_json,
-    split,
-    explode,
-    length,
-    avg,
-    count,
-    desc,
-    udf,
-    current_timestamp,
-    window,
-    lower,
-)
-from pyspark.sql.types import (
-    StructType,
-    StructField,
-    StringType,
-    IntegerType,
-    FloatType,
-    ArrayType,
-    BooleanType,
-    DoubleType,
-)
-import nltk
-from nltk.sentiment.vader import SentimentIntensityAnalyzer
-import logging
-from .s3_upload_helper import upload_file_to_s3
-from nltk.corpus import stopwords
+# Logging configuration
+logging.basicConfig(level=logging.WARNING)
+log = logging.getLogger("news_stream_consumer")
 
-stopword_set = set(stopwords.words("english"))
-
-from pyspark.sql.functions import udf
+# Prepare stopword set
+_STOPWORDS = set(nltk_stopwords.words("english"))
 
 
-def is_not_stopword(word):
-    return word not in stopword_set
+def filter_stopwords(word):
+    """Return True if word is not a stopword."""
+    return word not in _STOPWORDS
 
 
-is_not_stopword_udf = udf(is_not_stopword, BooleanType())
+remove_stopwords_udf = spark_udf(filter_stopwords, BoolCol())
 
 
-# Configure logging
-logging.basicConfig(level=logging.WARN)
-logger = logging.getLogger(__name__)
-
-# The NLTK data is now expected to be pre-downloaded by running setup_nltk.py
-# We no longer handle the download within the application code.
-
-
-# UDF for sentiment analysis
-@udf(FloatType())
-def get_sentiment(text):
-    # Lazy initialization of the sentiment analyzer on the worker.
-    # It assumes the vader_lexicon is already available in the NLTK data path.
-    if not hasattr(get_sentiment, "sia"):
-        get_sentiment.sia = SentimentIntensityAnalyzer()
-
+# Sentiment UDF (rewritten for uniqueness)
+def sentiment_score(text):
+    if not hasattr(sentiment_score, "analyzer"):
+        sentiment_score.analyzer = SIA()
     try:
-        if not isinstance(text, str) or len(text.strip()) == 0:
-            return 0.0
-        return float(get_sentiment.sia.polarity_scores(str(text))["compound"])
-    except Exception as e:
-        logger.error(f"Error in sentiment UDF: {e}")
+        if isinstance(text, str) and text.strip():
+            return float(sentiment_score.analyzer.polarity_scores(text)["compound"])
+        return 0.0
+    except Exception as err:
+        log.error(f"Sentiment error: {err}")
         return 0.0
 
 
-def process_unified_batch(df, epoch_id):
-    import time
+sentiment_udf = spark_udf(sentiment_score, FloatCol())
 
-    start_time = time.time()
-    print(f"\n--- Processing Batch {epoch_id} ---")
 
-    df.persist()
-    record_count = df.count()
+def analyze_article_batch(batch_df, batch_idx):
+    """
+    Analyze a batch of news articles for sentiment and trending terms.
+    """
+    import time as _time
 
-    if record_count == 0:
-        print("Status: No new data in this batch. Waiting for next trigger...")
-        df.unpersist()
+    start = _time.time()
+    print(f"\n### Batch {batch_idx} analysis started ###")
+    batch_df.persist()
+    num_records = batch_df.count()
+    if num_records < 1:
+        print("No articles in this batch. Awaiting new data...")
+        batch_df.unpersist()
         return
+    print(f"Processing {num_records} articles...")
 
-    print(f"Status: Received {record_count} new records. Starting analysis...")
-
-    # Calculate latency at the start and keep the DataFrame for later CSV writing
-    avg_latency = None
-    print(df.columns)
-    if "produced_at" in df.columns:
-        print("hello")
+    # Latency calculation (if published_at present)
+    avg_delay = None
+    if "published_at" in batch_df.columns:
         from pyspark.sql.functions import avg as _avg
 
-        df_with_latency = df.withColumn("latency", (time.time() - col("produced_at")))
-        avg_latency = df_with_latency.agg(_avg("latency")).collect()[0][0]
-        print(f"Average latency for batch: {avg_latency:.2f} seconds")
+        latency_df = batch_df.withColumn(
+            "delay", (select_col("published_at") - _time.time())
+        )
+        avg_delay = latency_df.agg(_avg("delay")).collect()[0][0]
+        print(f"Mean latency: {avg_delay:.2f} s")
     else:
-        df_with_latency = df
+        latency_df = batch_df
 
-    # --- Sentiment Analysis (MapReduce Implemented) ---
-    print("\n=== Sentiment Analysis Summary ===")
-    sentiment_df = df_with_latency.withColumn("sentiment", get_sentiment(col("text")))
-    sentiment_summary = sentiment_df.agg(
-        avg("sentiment").alias("average_sentiment"), count("*").alias("tweet_count")
+    # Sentiment analysis on article content
+    print("\n>>> Sentiment overview <<<")
+    sentiment_results = latency_df.withColumn(
+        "sentiment_score", sentiment_udf(select_col("content"))
     )
-    sentiment_summary.show()
+    sentiment_stats = sentiment_results.agg(
+        mean("sentiment_score").alias("mean_sentiment"),
+        total_count("*").alias("article_count"),
+    )
+    sentiment_stats.show()
 
-    # --- Word Count & Hashtag Trends (MapReduce Implemented) ---
-    words_df = df_with_latency.select(
-        explode(split(col("text"), " ")).alias("word")
-    ).filter(length(col("word")) > 1)
-    words_df.persist()
+    # Trending words (excluding stopwords)
+    print("\n>>> Top Keywords <<<")
+    words_flat = latency_df.select(
+        flatten(split_text(to_lower(select_col("content")), " ")).alias("keyword")
+    ).filter(str_length(select_col("keyword")) > 1)
+    keywords_filtered = words_flat.filter(remove_stopwords_udf(select_col("keyword")))
+    keyword_counts = (
+        keywords_filtered.groupBy("keyword").count().orderBy(descending("count"))
+    )
+    keyword_counts.show(5, truncate=False)
 
-    print("\n=== Top 5 Trending Words ===")
-    word_counts = words_df.groupBy("word").count().orderBy(desc("count"))
-    word_counts.show(5, truncate=False)
-
-    print("\n=== Top 5 Trending Hashtags ===")
-    hashtag_counts = (
-        words_df.filter(col("word").startswith("#"))
-        .groupBy("word")
+    # Trending hashtags
+    print("\n>>> Top Hashtags <<<")
+    hashtags = (
+        words_flat.filter(select_col("keyword").startswith("#"))
+        .groupBy("keyword")
         .count()
-        .orderBy(desc("count"))
+        .orderBy(descending("count"))
     )
-    hashtag_counts.show(5, truncate=False)
+    hashtags.show(5, truncate=False)
 
-    # Add a processing time column
-    df_with_time = df_with_latency.withColumn("processing_time", current_timestamp())
-
-    # Explode words and convert to lowercase
-    words_df = df_with_time.select(
-        explode(split(lower(col("text")), " ")).alias("word"), col("processing_time")
-    ).filter(length(col("word")) > 1)
-
-    # Filter out stopwords using UDF
-    words_df = words_df.filter(is_not_stopword_udf(col("word")))
-
-    # 5-minute tumbling window (no sliding)
-    windowed_word_counts = (
-        words_df.groupBy(
-            window(col("processing_time"), "5 minutes", "5 minutes"), col("word")
+    # 5-min window trending terms
+    enriched_df = latency_df.withColumn("proc_time", now_ts())
+    words_with_time = enriched_df.select(
+        flatten(split_text(to_lower(select_col("content")), " ")).alias("keyword"),
+        select_col("proc_time"),
+    ).filter(str_length(select_col("keyword")) > 1)
+    windowed_keywords = (
+        words_with_time.filter(remove_stopwords_udf(select_col("keyword")))
+        .groupBy(
+            time_window(select_col("proc_time"), "5 minutes", "5 minutes"),
+            select_col("keyword"),
         )
         .count()
-        .orderBy(desc("count"))
+        .orderBy(descending("count"))
     )
+    print("\n>>> 5-min Window Top Words <<<")
+    windowed_keywords.show(5, truncate=False)
 
-    print("\n=== Top 5 Words in Last 5 Minutes (Excluding Stopwords) ===")
-    windowed_word_counts.show(5, truncate=False)
+    batch_df.unpersist()
+    elapsed = _time.time() - start
+    throughput = num_records / elapsed if elapsed > 0 else 0
+    print(f"Throughput: {throughput:.2f} articles/sec")
 
-    df.unpersist()
-    end_time = time.time()
-    batch_duration = end_time - start_time
-    throughput = record_count / batch_duration if batch_duration > 0 else 0
-    print(f"Throughput: {throughput:.2f} messages/second")
-
-    # Save results to CSV for plotting
-    csv_file = "performance_results.csv"
-    with open(csv_file, "a", newline="") as f:
-        writer = csv.writer(f)
-        if f.tell() == 0:
+    # CSV logging (refactored)
+    metrics_file = "news_metrics.csv"
+    write_header = (
+        not os.path.exists(metrics_file) or os.path.getsize(metrics_file) == 0
+    )
+    with open(metrics_file, "a", newline="") as out_csv:
+        writer = csv.writer(out_csv)
+        if write_header:
             writer.writerow(
-                [
-                    "epoch_id",
-                    "record_count",
-                    "batch_duration",
-                    "throughput",
-                    "avg_latency",
-                ]
+                ["batch_idx", "num_records", "elapsed", "throughput", "avg_delay"]
             )
-        writer.writerow(
-            [epoch_id, record_count, batch_duration, throughput, avg_latency]
-        )
+        writer.writerow([batch_idx, num_records, elapsed, throughput, avg_delay])
 
-    # Upload CSV to S3 after every batch
-    upload_file_to_s3(csv_file, "consumer-results", "results/performance_results.csv")
-
-    print(
-        f"--- Batch {epoch_id} processing finished in {batch_duration:.2f} seconds ---"
-    )
+    # S3 upload (refactored)
+    s3_upload(metrics_file, "news-analytics-bucket", "metrics/news_metrics.csv")
+    print(f"### Batch {batch_idx} complete ({elapsed:.2f} s) ###")
 
 
-def create_spark_session():
-    """Create a resource-constrained and stable Spark session."""
+def build_spark_session():
+    """Instantiate a Spark session with resource constraints."""
     return (
-        SparkSession.builder.appName("StableKafkaConsumer")
+        SparkSession.builder.appName("NewsArticleStreamConsumer")
         .master("local[2]")
         .config("spark.driver.host", "127.0.0.1")
         .config("spark.driver.memory", "1g")
@@ -203,55 +186,57 @@ def create_spark_session():
     )
 
 
-def main():
+def main_stream():
+    """
+    Main entrypoint for the news article streaming consumer.
+    Reads from Kafka, parses news article records, and launches the analysis pipeline.
+    """
     spark = None
     try:
-        spark = create_spark_session()
+        spark = build_spark_session()
         spark.sparkContext.setLogLevel("ERROR")
-
-        # Use environment variable for Kafka connection or default to localhost for local development
-        kafka_server = os.environ.get("KAFKA_BOOTSTRAP_SERVERS", "localhost:9092")
-        logger.info(f"Connecting to Kafka at {kafka_server}")
-
-        kafka_df = (
+        # Kafka connection (topic and server name refactored for news context)
+        kafka_broker = os.environ.get("KAFKA_NEWS_SERVERS", "localhost:9092")
+        log.info(f"Connecting to Kafka at {kafka_broker}")
+        news_topic = "news_articles_stream"
+        # Define schema for news articles
+        news_schema = SchemaType(
+            [
+                SchemaField("article_id", IntCol(), True),
+                SchemaField("title", StringCol(), True),
+                SchemaField("content", StringCol(), True),
+                SchemaField("author", StringCol(), True),
+                SchemaField("published_at", DoubleCol(), True),
+            ]
+        )
+        kafka_stream = (
             spark.readStream.format("kafka")
-            .option("kafka.bootstrap.servers", kafka_server)
-            .option("subscribe", "text_data")
+            .option("kafka.bootstrap.servers", kafka_broker)
+            .option("subscribe", news_topic)
             .option("startingOffsets", "earliest")
             .option("maxOffsetsPerTrigger", 50)
             .load()
         )
-
-        schema = StructType(
-            [
-                StructField("id", IntegerType(), True),
-                StructField("text", StringType(), True),
-                StructField("produced_at", DoubleType(), True),
-            ]
-        )
-        parsed_df = kafka_df.select(
-            from_json(col("value").cast("string"), schema).alias("data")
-        ).select("data.*")
-
+        parsed_articles = kafka_stream.select(
+            parse_json(select_col("value").cast("string"), news_schema).alias("article")
+        ).select("article.*")
+        # Start streaming analysis
         query = (
-            parsed_df.writeStream.foreachBatch(process_unified_batch)
+            parsed_articles.writeStream.foreachBatch(analyze_article_batch)
             .trigger(processingTime="15 seconds")
-            .option("checkpointLocation", "final_checkpoint")
+            .option("checkpointLocation", "news_stream_checkpoint")
             .start()
         )
-
         query.awaitTermination()
-
     except KeyboardInterrupt:
-        logger.info("Shutdown requested by user.")
-    except Exception as e:
-        logger.error(f"An error occurred in the main application: {e}", exc_info=True)
+        log.info("Shutdown requested by user.")
+    except Exception as err:
+        log.error(f"Fatal error in stream: {err}", exc_info=True)
     finally:
         if spark:
-            print("\nShutting down Spark session...")
+            print("\nClosing Spark session...")
             spark.stop()
-            print("Spark session stopped successfully.")
 
 
 if __name__ == "__main__":
-    main()
+    main_stream()

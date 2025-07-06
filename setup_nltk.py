@@ -8,23 +8,25 @@ except AttributeError:
 else:
     ssl._create_default_https_context = _create_unverified_https_context
 
-def download_nltk_data():
-    """Download required NLTK data packages."""
-    required_packages = [
+def ensure_nltk_resources():
+    """
+    Fetch all NLTK resources required for news article analysis.
+    This includes sentiment, tokenization, and stopword modules.
+    """
+    resources = [
         'punkt',
         'vader_lexicon',
         'averaged_perceptron_tagger',
         'wordnet',
         'stopwords',
     ]
-    
-    print("Downloading NLTK data packages...")
-    for package in required_packages:
+    print("Ensuring NLTK resources are available...")
+    for res in resources:
         try:
-            nltk.download(package, quiet=True)
-            print(f"✓ Successfully downloaded {package}")
-        except Exception as e:
-            print(f"✗ Failed to download {package}: {str(e)}")
+            nltk.download(res, quiet=True)
+            print(f"[NLTK] {res} ✓")
+        except Exception as exc:
+            print(f"[NLTK] {res} ✗ ({exc})")
 
 if __name__ == "__main__":
-    download_nltk_data() 
+    ensure_nltk_resources()

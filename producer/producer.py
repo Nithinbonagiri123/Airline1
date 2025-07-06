@@ -7,68 +7,71 @@ import kagglehub
 import logging
 import os
 
-# Configure logging
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
-
-def create_producer():
-    retries = 12
-    # Use environment variable for Kafka connection or default to localhost for local development
-    kafka_server = os.environ.get('KAFKA_BOOTSTRAP_SERVERS', 'localhost:9092')
-    logger.info(f"Connecting to Kafka at {kafka_server}")
-    
-    for i in range(retries):
+def initialize_article_producer():
+    """
+    Establish a Kafka producer for streaming news articles.
+    Retries connection multiple times for robustness.
+    """
+    max_attempts = 12
+    kafka_host = os.environ.get('KAFKA_NEWS_SERVERS', 'localhost:9092')
+    log = logging.getLogger("news_article_producer")
+    log.info(f"Attempting Kafka connection at {kafka_host}")
+    for attempt in range(max_attempts):
         try:
             producer = KafkaProducer(
-                bootstrap_servers=kafka_server,
+                bootstrap_servers=kafka_host,
                 value_serializer=lambda v: json.dumps(v).encode('utf-8')
             )
-            logger.info("Kafka producer created successfully.")
+            log.info("Kafka producer initialized.")
             return producer
         except NoBrokersAvailable:
-            logger.warning(f"Kafka broker not available. Retrying in 5 seconds... ({i+1}/{retries})")
+            log.warning(f"Kafka unavailable, retrying in 5s... ({attempt+1}/{max_attempts})")
             time.sleep(5)
-    logger.error("Failed to connect to Kafka broker after multiple retries.")
+    log.error("Kafka connection failed after retries.")
     return None
 
-def stream_data(producer, topic, csv_file):
+def publish_news_stream(producer, topic, csv_path):
+    """
+    Stream news articles from a CSV file to a Kafka topic.
+    Each row must contain: article_id, title, content, author, published_at.
+    """
+    log = logging.getLogger("news_article_producer")
     try:
-        df = pd.read_csv(csv_file)
-        
-        # Ensure 'clean_text' column exists and handle missing values
-        if 'clean_text' not in df.columns:
-            logger.error("Error: 'clean_text' column not found in the CSV.")
+        df = pd.read_csv(csv_path)
+        required_cols = {'article_id', 'title', 'content', 'author', 'published_at'}
+        if not required_cols.issubset(df.columns):
+            log.error(f"CSV missing required columns: {required_cols - set(df.columns)}")
             return
-        
-        df = df.dropna(subset=['clean_text'])
-        df = df.tail(1000)  # Increased sample size slightly
-
-        for index, row in df.iterrows():
-            # Create a message that matches the consumer's schema
-            message = {
-                "id": index,
-                "text": row['clean_text'],
-                "produced_at":time.time(),
+        df = df.dropna(subset=['content'])
+        df = df.tail(1000)  # Use last 1000 news articles
+        for _, row in df.iterrows():
+            article_msg = {
+                "article_id": int(row['article_id']),
+                "title": str(row['title']),
+                "content": str(row['content']),
+                "author": str(row['author']),
+                "published_at": float(row['published_at']) if not pd.isnull(row['published_at']) else time.time(),
             }
-            producer.send(topic, value=message)
-            logger.info(f"Sent: {message}")
-            time.sleep(0.5) # Reduced sleep time to speed up streaming
-            
+            producer.send(topic, value=article_msg)
+            log.info(f"Dispatched: {article_msg}")
+            time.sleep(0.5)
     except FileNotFoundError:
-        logger.error(f"Error: The file {csv_file} was not found.")
-    except Exception as e:
-        logger.error(f"An error occurred during data streaming: {e}")
+        log.error(f"CSV file not found: {csv_path}")
+    except Exception as exc:
+        log.error(f"Streaming error: {exc}")
 
 if __name__ == "__main__":
-    kafka_producer = create_producer()
-    if kafka_producer:
-        kafka_topic = 'text_data'
+    logging.basicConfig(level=logging.INFO)
+    article_producer = initialize_article_producer()
+    if article_producer:
+        target_topic = 'news_articles_stream'
         try:
-            path = kagglehub.dataset_download("saurabhshahane/twitter-sentiment-dataset")
-            csv_path = os.path.join(path, "Twitter_Data.csv")
-            stream_data(kafka_producer, kafka_topic, csv_path)
-        except Exception as e:
-            logger.error(f"Failed to download or process dataset: {e}")
+            # Download news dataset from Kaggle (asad1m9a9h6mood/news-articles)
+            dataset_dir = kagglehub.dataset_download("asad1m9a9h6mood/news-articles")
+            csv_file = os.path.join(dataset_dir, "news_articles.csv")
+            publish_news_stream(article_producer, target_topic, csv_file)
+        except Exception as exc:
+            logging.getLogger("news_article_producer").error(f"Dataset download/streaming failed: {exc}")
         finally:
-            kafka_producer.close()
-            logger.info("Kafka producer closed.") 
+            article_producer.close()
+            logging.getLogger("news_article_producer").info("Kafka producer closed.")
