@@ -1,4 +1,5 @@
 #!/bin/bash
+
 echo 'killing existing tmux sessions...'
 tmux kill-session -t producer 2>/dev/null
 tmux kill-session -t consumer 2>/dev/null
@@ -12,13 +13,18 @@ docker compose up -d
 echo 'waiting for kafka to start...'
 sleep 10
 
-echo 'setup nlkt...'
-python3 setup_nltk.py
+echo 'setup nltk...'
+source venv/bin/activate && python3 setup_nltk.py && pip3 install -r requirements.txt
 
 echo 'starting producer...'
-tmux new-session -d -s producer 'python3 producer/producer.py'
+tmux new-session -d -s producer
+tmux send-keys -t producer "source venv/bin/activate" C-m
+tmux send-keys -t producer "python3 producer/producer.py" C-m
 
 echo 'starting consumer...'
-tmux new-session -d -s consumer 'python3 consumer/consumer.py'
+tmux new-session -d -s consumer
+tmux send-keys -t consumer "source venv/bin/activate" C-m
+tmux send-keys -t consumer "python3 consumer/consumer.py" C-m
 
-tmux attach-session -d -s consumer
+tmux attach-session -t consumer -d
+
