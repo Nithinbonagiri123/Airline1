@@ -4,10 +4,10 @@ tmux kill-session -t producer 2>/dev/null
 tmux kill-session -t consumer 2>/dev/null
 
 echo 'killing existing docker containers...'
-docker-compose down
+docker compose down
 
 echo 'starting kafka...'
-docker-compose up -d
+docker compose up -d
 
 echo 'waiting for kafka to start...'
 sleep 10
