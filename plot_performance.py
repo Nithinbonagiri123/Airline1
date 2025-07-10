@@ -2,14 +2,14 @@ import pandas as pd
 import matplotlib.pyplot as plt
 
 # Load performance data for airline customer review streaming pipeline
-perf_data = pd.read_csv("all_batches_results.csv")
+perf_data = pd.read_csv("airline_customer_review_metrics.csv")
 
 plt.style.use("ggplot")
 fig, plots = plt.subplots(1, 2, figsize=(13, 5))
 
 # Plot streaming throughput
 plots[0].plot(
-    perf_data["batch_idx"],
+    perf_data["batch_num"],
     perf_data["throughput"],
     marker="o",
     color="teal",
@@ -22,8 +22,8 @@ plots[0].grid(True, linestyle="-.", alpha=0.7)
 
 # Plot average ingestion delay
 plots[1].plot(
-    perf_data["batch_idx"],
-    perf_data["avg_delay"],
+    perf_data["batch_num"],
+    perf_data["avg_latency"],
     marker="x",
     color="orange",
     linewidth=2,
