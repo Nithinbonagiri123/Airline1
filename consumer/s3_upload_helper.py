@@ -3,6 +3,7 @@ import os
 import io
 import pickle
 import pandas as pd
+from botocore.exceptions import ClientError
 
 class S3Uploader:
     def __init__(self):
@@ -32,6 +33,47 @@ class S3Uploader:
             'models': []
         }
 
+    def ensure_bucket_exists(self, bucket):
+        """Check if a bucket exists, create it if it doesn't
+        
+        Args:
+            bucket (str): Name of the S3 bucket
+            
+        Returns:
+            bool: True if bucket exists or was created successfully, False otherwise
+        """
+        try:
+            # Check if bucket exists
+            self.s3_client.head_bucket(Bucket=bucket)
+            print(f"✅ Bucket exists: {bucket}")
+            return True
+        except ClientError as e:
+            error_code = e.response.get('Error', {}).get('Code')
+            
+            # If bucket doesn't exist
+            if error_code == '404' or error_code == 'NoSuchBucket':
+                try:
+                    # Create bucket in the same region as our client
+                    self.s3_client.create_bucket(
+                        Bucket=bucket,
+                        CreateBucketConfiguration={'LocationConstraint': self.aws_region}
+                    )
+                    print(f"✅ Created new bucket: {bucket}")
+                    return True
+                except Exception as create_error:
+                    print(f"❌ Failed to create bucket {bucket}: {create_error}")
+                    return False
+            # If we don't have permission to check bucket
+            elif error_code == '403':
+                print(f"❌ No permission to access bucket: {bucket}")
+                return False
+            else:
+                print(f"❌ Error checking bucket {bucket}: {e}")
+                return False
+        except Exception as e:
+            print(f"❌ Unexpected error checking bucket {bucket}: {e}")
+            return False
+
     def upload_file(self, local_path, bucket, s3_key=None):
         """Upload a file to S3 bucket
         
@@ -44,6 +86,10 @@ class S3Uploader:
             bool: True if successful, False otherwise
         """
         try:
+            # Ensure bucket exists
+            if not self.ensure_bucket_exists(bucket):
+                return False
+                
             if s3_key is None:
                 s3_key = os.path.basename(local_path)
                 
@@ -68,6 +114,10 @@ class S3Uploader:
             bool: True if successful, False otherwise
         """
         try:
+            # Ensure bucket exists
+            if not self.ensure_bucket_exists(bucket):
+                return False
+                
             csv_buffer = io.StringIO()
             df.to_csv(csv_buffer, index=False)
             
@@ -97,6 +147,10 @@ class S3Uploader:
             bool: True if successful, False otherwise
         """
         try:
+            # Ensure bucket exists
+            if not self.ensure_bucket_exists(bucket):
+                return False
+                
             # Save locally
             fig.savefig(filename, dpi=300, bbox_inches='tight')
             print(f"📁 Plot saved locally: {filename}")
@@ -124,6 +178,10 @@ class S3Uploader:
             bool: True if successful, False otherwise
         """
         try:
+            # Ensure bucket exists
+            if not self.ensure_bucket_exists(bucket):
+                return False
+                
             # Create local filename
             local_filename = f"{model_name}_model.pkl"
             
