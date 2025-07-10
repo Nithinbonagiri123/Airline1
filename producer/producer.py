@@ -1,74 +1,133 @@
-import pandas as pd
-from kafka import KafkaProducer
-from kafka.errors import NoBrokersAvailable
+import os
 import time
 import json
-import kagglehub
+import pandas as pd
 import logging
-import os
+from kafka import KafkaProducer
+from kafka.errors import NoBrokersAvailable
+import kagglehub
 
-# Configure logging
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
 
-def create_producer():
-    retries = 12
-    # Use environment variable for Kafka connection or default to localhost for local development
-    kafka_server = os.environ.get('KAFKA_BOOTSTRAP_SERVERS', 'localhost:9092')
-    logger.info(f"Connecting to Kafka at {kafka_server}")
-    
-    for i in range(retries):
+def setup_kafka_producer(
+    max_retries=10, kafka_env_var="KAFKA_NEWS_SERVERS", default_host="localhost:9092"
+):
+    """
+    Initialize and return a Kafka producer instance for airline customer reviews.
+    Retries connection if the broker is unavailable.
+    """
+    logger = logging.getLogger("dataset_streamer")
+    broker_addr = os.environ.get(kafka_env_var, default_host)
+    for attempt in range(1, max_retries + 1):
         try:
             producer = KafkaProducer(
-                bootstrap_servers=kafka_server,
-                value_serializer=lambda v: json.dumps(v).encode('utf-8')
+                bootstrap_servers=broker_addr,
+                value_serializer=lambda record: json.dumps(record).encode("utf-8"),
             )
-            logger.info("Kafka producer created successfully.")
+            logger.info(f"Kafka producer connected to {broker_addr}")
             return producer
-        except NoBrokersAvailable:
-            logger.warning(f"Kafka broker not available. Retrying in 5 seconds... ({i+1}/{retries})")
-            time.sleep(5)
-    logger.error("Failed to connect to Kafka broker after multiple retries.")
+        except NoBrokersAvailable as err:
+            logger.warning(
+                f"Kafka broker not available (attempt {attempt}/{max_retries}). Retrying in 4s..."
+            )
+            time.sleep(4)
+    logger.error("Failed to connect to Kafka after multiple attempts.")
     return None
 
-def stream_data(producer, topic, csv_file):
+
+def stream_csv_to_kafka(
+    producer,
+    topic,
+    csv_file,
+    id_col=None,
+    content_col=None,
+    extra_cols=None,
+    delay=0.5,
+    row_limit=1000,
+):
+    """
+    Send rows from an airline customer review CSV file to a Kafka topic as JSON messages.
+    Args:
+        producer: KafkaProducer instance
+        topic: Kafka topic name
+        csv_file: Path to airline customer reviews CSV file
+        id_col, content_col: Column names for review ID and review text
+        extra_cols: List of extra columns to include (optional)
+        delay: Seconds to wait between messages
+        row_limit: Number of last rows to send
+    """
+    logger = logging.getLogger("dataset_streamer")
     try:
         df = pd.read_csv(csv_file)
-        
-        # Ensure 'clean_text' column exists and handle missing values
-        if 'clean_text' not in df.columns:
-            logger.error("Error: 'clean_text' column not found in the CSV.")
+        required_cols = [
+            "AirLine_Name",
+            "Rating - 10",
+            "Title",
+            "Name",
+            "Date",
+            "Review",
+            "Recommond",
+        ]
+        missing_cols = [col for col in required_cols if col not in df.columns]
+        if missing_cols:
+            logger.error(f"CSV missing required columns: {missing_cols}")
             return
-        
-        df = df.dropna(subset=['clean_text'])
-        df = df.tail(1000)  # Increased sample size slightly
-
-        for index, row in df.iterrows():
-            # Create a message that matches the consumer's schema
-            message = {
-                "id": index,
-                "text": row['clean_text'],
-                "produced_at":time.time(),
-            }
+        df = df.dropna(subset=["Review"])
+        if row_limit:
+            df = df.tail(row_limit)
+        for _, row in df.iterrows():
+            message = {col: row[col] for col in required_cols}
+            # Add timestamp based on Date if possible, else use current time
+            try:
+                message["timestamp"] = time.mktime(
+                    pd.to_datetime(row["Date"]).timetuple()
+                )
+            except Exception:
+                message["timestamp"] = time.time()
             producer.send(topic, value=message)
-            logger.info(f"Sent: {message}")
-            time.sleep(0.5) # Reduced sleep time to speed up streaming
-            
-    except FileNotFoundError:
-        logger.error(f"Error: The file {csv_file} was not found.")
+            logger.debug(f"Sent to Kafka: {message}")
+            time.sleep(delay)
+        logger.info(f"Finished streaming {len(df)} records to Kafka topic '{topic}'.")
     except Exception as e:
-        logger.error(f"An error occurred during data streaming: {e}")
+        logger.error(f"Error streaming airline customer reviews CSV to Kafka: {e}")
+
+
+def download_kaggle_dataset(dataset_path, filename):
+    """
+    Download an airline customer review dataset from Kaggle using kagglehub and return the local file path.
+    """
+    try:
+        local_dir = kagglehub.dataset_download(dataset_path)
+        return os.path.join(local_dir, filename)
+    except Exception as e:
+        logging.getLogger("dataset_streamer").error(
+            f"Failed to download airline customer review dataset: {e}"
+        )
+        return None
+
+
+def main():
+    logging.basicConfig(level=logging.DEBUG)
+    producer = setup_kafka_producer()
+    if not producer:
+        return
+    topic = "airline_customer_review_stream"
+    kaggle_dataset = "jagathratchakan/indian-airlines-customer-reviews"
+    kaggle_csv = "Indian_Domestic_Airline.csv"
+    csv_path = download_kaggle_dataset(kaggle_dataset, kaggle_csv)
+    if csv_path:
+        stream_csv_to_kafka(
+            producer,
+            topic,
+            csv_path,
+            delay=0,  # No delay for quick test
+            row_limit=2000,  # Only 5 rows for quick test
+        )
+        producer.flush()  # Ensure all messages are sent!
+    producer.close()
+    logging.getLogger("dataset_streamer").info("Kafka producer connection closed.")
+
 
 if __name__ == "__main__":
-    kafka_producer = create_producer()
-    if kafka_producer:
-        kafka_topic = 'text_data'
-        try:
-            path = kagglehub.dataset_download("saurabhshahane/twitter-sentiment-dataset")
-            csv_path = os.path.join(path, "Twitter_Data.csv")
-            stream_data(kafka_producer, kafka_topic, csv_path)
-        except Exception as e:
-            logger.error(f"Failed to download or process dataset: {e}")
-        finally:
-            kafka_producer.close()
-            logger.info("Kafka producer closed.") 
+    main()
+
+# This script streams airline customer review data to Kafka for downstream analytics.

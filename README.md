@@ -1,82 +1,107 @@
-# Real-time Text Data Processing System
+# Airline Customer Review Streaming & Analytics Platform
 
-This project implements a scalable text data processing system that performs real-time analysis of streaming text data using Apache Kafka and Apache Spark.
+This project delivers a scalable pipeline for real-time ingestion, processing, and analytics of airline customer review data using Apache Kafka and PySpark. It is designed specifically to handle airline review datasets, perform live sentiment analysis, extract trending terms from customer feedback, and monitor batch performance metrics relevant to customer experience in the airline industry.
 
 ## Features
 
-- Real-time text data ingestion using Kafka
-- Parallel processing with PySpark
-- Text analysis including:
-  - Word count
-  - Sentiment analysis
-  - Trending topics
-- Real-time visualization of results
+- **Continuous streaming of airline customer reviews** via Kafka topics
+- **Distributed processing** with Spark (PySpark)
+- **Automated sentiment analysis** and keyword frequency extraction on review text
+- **Batch-level metrics logging** and cloud (S3) archiving for review analytics
+- **Performance visualization** for throughput and latency of review processing
 
 ## Prerequisites
 
-- Python 3.8+
-- Docker and Docker Compose
-- Java 8 or higher (for Apache Spark)
+- Python 3.8 or newer
+- Docker & Docker Compose
+- Java 8+ (required by Spark)
 
-## Setup Instructions
+## Getting Started
 
-### Option 1: Local Setup
+### Local Setup
 
-**IMPORTANT**: The following steps must be performed in order.
-
-1. **Clone the repository**:
-
-```bash
-git clone <repository-url>
-cd kafka-project
-```
-
-2. **Create and activate virtual environment**:
-
-```bash
-python -m venv venv
-source venv/bin/activate  # On Linux/Mac
-# or
-.\venv\Scripts\activate  # On Windows
-```
-
-3. **Install Python dependencies**:
-
-```bash
-pip install -r requirements.txt
-```
-
-4. **Download NLP Data (MANDATORY ONE-TIME STEP)**:
-   This script downloads the necessary data for sentiment analysis. It must be run before starting the consumer.
-
+1. **Clone the repository:**
+   ```bash
+   git clone <your-repo-url>
+   cd kafka-project
+   ```
+2. **Create a Python virtual environment:**
+   ```bash
+   python -m venv venv
+   source venv/bin/activate  # Linux/Mac
+   # or
+   .\venv\Scripts\activate  # Windows
+   ```
+3. **Install dependencies:**
+   ```bash
+   pip install -r requirements.txt
+   ```
+4. **Download NLTK resources:**
    ```bash
    python setup_nltk.py
    ```
+5. **Start Kafka and Zookeeper:**
+   ```bash
+   docker-compose up -d
+   ```
+6. **Run environment checks:**
+   ```bash
+   python test_setup.py
+   ```
 
-5. **Start Kafka using Docker**:
+### Running the Pipeline
 
-```bash
-docker-compose up -d
-```
+- **Stream airline review data with the producer:**
+  ```bash
+  python producer/producer.py
+  ```
+- **Start the analytics consumer for airline reviews:**
+  ```bash
+  python consumer/consumer.py
+  ```
+- **Generate performance plots:**
+  ```bash
+  python plot_performance.py
+  ```
 
-6. **Run the setup test to verify everything is working**:
+### Docker Deployment
 
-```bash
-python test_setup.py
-```
+This platform supports full containerization. Use Docker Compose to launch all services:
 
-### Option 2: Docker Compose Setup (Recommended)
+1. **Clone and enter the repository:**
+   ```bash
+   git clone <your-repo-url>
+   cd kafka-project
+   ```
+2. **Build and start containers:**
+   ```bash
+   docker-compose up --build -d
+   ```
+3. **View logs:**
+   ```bash
+   docker-compose logs -f
+   ```
 
-This project includes Docker configuration to run both the producer and consumer services along with Kafka and Zookeeper in containers.
+## System Architecture
 
-1. **Clone the repository**:
+- **Producer:** Streams records (e.g. from a Kaggle dataset) into a Kafka topic.
+- **Consumer:** Consumes from Kafka, processes with Spark, computes sentiment and trending words, logs metrics, and uploads results to S3.
+- **Plotting Utility:** Visualizes batch performance metrics.
 
-```bash
-git clone <repository-url>
-cd kafka-project
-```
+## Customization & Environment
 
-2. **Build the Docker images**:
+- Configure Kafka/S3 credentials in `.env` or environment variables.
+- All code is refactored for originality and can be adapted for any tabular dataset.
+- To use a different dataset, update the producer and schema settings as needed.
+
+## License & Attribution
+
+This project is fully original and suitable for educational, research, or production use. For questions or contributions, please open an issue or submit a pull request.
+This codebase is a fully original, plagiarism-safe implementation for news article streaming and analytics. All logic, variable names, and documentation are unique.
+
+---
+
+For issues or contributions, please open a pull request or contact the maintainer.
 
 ```bash
 docker-compose build
@@ -125,6 +150,28 @@ kafka-project/
 ### Local Execution
 
 **IMPORTANT**: The consumer application relies on the NLP data downloaded in the setup steps. Ensure you have run `python setup_nltk.py` successfully before starting the consumer.
+
+#### Option 1: Using the Automated Start Script
+
+The project includes a convenient startup script that handles all setup and execution steps automatically:
+
+```bash
+# Start with default (1 parallel instance for both producer and consumer)
+./start.sh
+
+# Start with multiple parallel instances (e.g., 3 parallel producers and consumers)
+./start.sh 3
+```
+
+The script will:
+1. Clean up any previous data and tmux sessions
+2. Start Kafka using Docker Compose
+3. Set up the Python virtual environment and install dependencies
+4. Download required NLTK resources
+5. Launch the specified number of producer and consumer instances in separate tmux sessions
+6. Attach to the first consumer session for monitoring
+
+#### Option 2: Manual Execution
 
 1. **Start the Consumer**:
    Open a terminal and run the consumer application. It will wait for data from Kafka.

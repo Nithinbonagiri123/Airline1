@@ -1,26 +1,44 @@
 import pandas as pd
 import matplotlib.pyplot as plt
 
-# Load the performance results CSV
-df = pd.read_csv("performance_results.csv")
+# Load performance data for airline customer review streaming pipeline
+perf_data = pd.read_csv("airline_customer_review_metrics.csv")
 
-plt.figure(figsize=(12, 5))
+plt.style.use("ggplot")
+fig, plots = plt.subplots(1, 2, figsize=(13, 5))
 
-# Plot Throughput per Batch
-plt.subplot(1, 2, 1)
-plt.plot(df['epoch_id'], df['throughput'], marker='o')
-plt.title('Throughput per Batch')
-plt.xlabel('Batch (epoch_id)')
-plt.ylabel('Throughput (messages/sec)')
+# Plot streaming throughput
+plots[0].plot(
+    perf_data["batch_num"],
+    perf_data["throughput"],
+    marker="o",
+    color="teal",
+    linewidth=2,
+)
+plots[0].set_title("Batch-wise Stream Throughput")
+plots[0].set_xlabel("Batch Number")
+plots[0].set_ylabel("Records per Second")
+plots[0].grid(True, linestyle="-.", alpha=0.7)
 
-# Plot Average Latency per Batch
-plt.subplot(1, 2, 2)
-plt.plot(df['epoch_id'], df['avg_latency'], marker='o', color='red')
-plt.title('Average Latency per Batch')
-plt.xlabel('Batch (epoch_id)')
-plt.ylabel('Average Latency (sec)')
+# Plot average ingestion delay
+plots[1].plot(
+    perf_data["batch_num"],
+    perf_data["avg_latency"],
+    marker="x",
+    color="orange",
+    linewidth=2,
+)
+plots[1].set_title("Mean Ingestion Delay per Batch")
+plots[1].set_xlabel("Batch Number")
+plots[1].set_ylabel("Average Delay (seconds)")
+plots[1].grid(True, linestyle=":", alpha=0.5)
 
-plt.tight_layout()
-plt.savefig("performance_plot.png")
-print("Plot saved as performance_plot.png")
-# plt.show()  # Commented out for non-interactive environments
+plt.suptitle(
+    "Airline Customer Review Streaming Pipeline: Performance Overview",
+    fontsize=15,
+    fontweight="bold",
+)
+plt.tight_layout(rect=[0, 0.03, 1, 0.95])
+plt.savefig("stream_performance_summary.png", dpi=150)
+print("Saved performance summary as stream_performance_summary.png")
+# plt.show()  # Uncomment for interactive review

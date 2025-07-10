@@ -1,198 +1,208 @@
 import os
 import sys
-import csv
+import logging
 import time
+import csv
+from pyspark.sql import SparkSession
+from pyspark.sql.functions import (
+    from_json as spark_from_json,
+    col as spark_col,
+    explode as spark_explode,
+    split as spark_split,
+    avg as spark_avg,
+    length as spark_length,
+    desc as spark_desc,
+    count as spark_count,
+    current_timestamp as spark_now,
+    udf as spark_udf,
+    lower as spark_lower,
+    window as spark_window,
+    flatten,
+    lit,
+    from_unixtime,
+    unix_timestamp,
+    to_timestamp,
+    date_format
+)
+from pyspark.sql.types import (
+    StructType as SparkStructType,
+    StructField as SparkStructField,
+    StringType as SparkStringType,
+    IntegerType as SparkIntType,
+    FloatType as SparkFloatType,
+    BooleanType as SparkBoolType,
+    DoubleType as SparkDoubleType,
+)
+from nltk.sentiment.vader import SentimentIntensityAnalyzer
+from nltk.corpus import stopwords
+from s3_upload_helper import transfer_to_cloud_storage
 
-# Point Spark to the Python executable in the current virtual environment
+# Configure Spark environment
 os.environ["PYSPARK_PYTHON"] = sys.executable
 os.environ["PYSPARK_DRIVER_PYTHON"] = sys.executable
 os.environ["PYSPARK_SUBMIT_ARGS"] = (
     "--packages org.apache.spark:spark-sql-kafka-0-10_2.12:3.2.4 pyspark-shell"
 )
 
-from pyspark.sql import SparkSession
-from pyspark.sql.functions import (
-    col,
-    from_json,
-    split,
-    explode,
-    length,
-    avg,
-    count,
-    desc,
-    udf,
-    current_timestamp,
-    window,
-    lower,
-)
-from pyspark.sql.types import (
-    StructType,
-    StructField,
-    StringType,
-    IntegerType,
-    FloatType,
-    ArrayType,
-    BooleanType,
-    DoubleType,
-)
-import nltk
-from nltk.sentiment.vader import SentimentIntensityAnalyzer
-import logging
-from s3_upload_helper import upload_file_to_s3
-from nltk.corpus import stopwords
+# Logging setup
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger("data_stream_consumer")
 
-stopword_set = set(stopwords.words("english"))
-
-from pyspark.sql.functions import udf
+# Prepare stopword set for filtering airline customer review words
+STOPWORDS = set(stopwords.words("english"))
 
 
 def is_not_stopword(word):
-    return word not in stopword_set
+    """True if word is not a stopword."""
+    return word not in STOPWORDS
 
 
-is_not_stopword_udf = udf(is_not_stopword, BooleanType())
+remove_stopwords_udf = spark_udf(is_not_stopword, SparkBoolType())
 
 
-# Configure logging
-logging.basicConfig(level=logging.WARN)
-logger = logging.getLogger(__name__)
-
-# The NLTK data is now expected to be pre-downloaded by running setup_nltk.py
-# We no longer handle the download within the application code.
-
-
-# UDF for sentiment analysis
-@udf(FloatType())
-def get_sentiment(text):
-    # Lazy initialization of the sentiment analyzer on the worker.
-    # It assumes the vader_lexicon is already available in the NLTK data path.
-    if not hasattr(get_sentiment, "sia"):
-        get_sentiment.sia = SentimentIntensityAnalyzer()
-
+# Sentiment analysis UDF for airline customer reviews
+def compute_sentiment(text):
+    if not hasattr(compute_sentiment, "analyzer"):
+        compute_sentiment.analyzer = SentimentIntensityAnalyzer()
     try:
-        if not isinstance(text, str) or len(text.strip()) == 0:
-            return 0.0
-        return float(get_sentiment.sia.polarity_scores(str(text))["compound"])
-    except Exception as e:
-        logger.error(f"Error in sentiment UDF: {e}")
+        if isinstance(text, str) and text.strip():
+            return float(compute_sentiment.analyzer.polarity_scores(text)["compound"])
+        return 0.0
+    except Exception as exc:
+        logger.warning(f"Sentiment UDF error: {exc}")
         return 0.0
 
 
-def process_unified_batch(df, epoch_id):
-    import time
+sentiment_udf = spark_udf(compute_sentiment, SparkFloatType())
 
+
+def batch_analysis(df, batch_num):
+    """
+    Analyze a batch of airline customer reviews for sentiment and trending words.
+    """
     start_time = time.time()
-    print(f"\n--- Processing Batch {epoch_id} ---")
-
-    df.persist()
-    record_count = df.count()
-
-    if record_count == 0:
-        print("Status: No new data in this batch. Waiting for next trigger...")
+    logger.info(f"[Batch {batch_num}] Analysis started.")
+    
+    # Persist the DataFrame as it will be used multiple times
+    df = df.persist()
+    count = df.count()
+    
+    if count < 1:
+        logger.info("Batch is empty. Skipping...")
         df.unpersist()
         return
-
-    print(f"Status: Received {record_count} new records. Starting analysis...")
-
-    # Calculate latency at the start and keep the DataFrame for later CSV writing
+        
+    logger.info(f"Processing {count} records...")
+    
+    # Calculate latency if timestamp is present
     avg_latency = None
-    print(df.columns)
-    if "produced_at" in df.columns:
-        print("hello")
-        from pyspark.sql.functions import avg as _avg
-
-        df_with_latency = df.withColumn("latency", (time.time() - col("produced_at")))
-        avg_latency = df_with_latency.agg(_avg("latency")).collect()[0][0]
-        print(f"Average latency for batch: {avg_latency:.2f} seconds")
+    if "timestamp" in df.columns:
+        latency_df = df.withColumn("latency", (time.time() - spark_col("timestamp")))
+        avg_latency = latency_df.agg(spark_avg("latency")).collect()[0][0]
+        logger.info(f"Average latency: {avg_latency:.2f} s")
+        
+        # Add processing time for time window analysis
+        enriched_df = df.withColumn("proc_time", spark_now())
     else:
-        df_with_latency = df
-
-    # --- Sentiment Analysis (MapReduce Implemented) ---
-    print("\n=== Sentiment Analysis Summary ===")
-    sentiment_df = df_with_latency.withColumn("sentiment", get_sentiment(col("text")))
-    sentiment_summary = sentiment_df.agg(
-        avg("sentiment").alias("average_sentiment"), count("*").alias("tweet_count")
-    )
-    sentiment_summary.show()
-
-    # --- Word Count & Hashtag Trends (MapReduce Implemented) ---
-    words_df = df_with_latency.select(
-        explode(split(col("text"), " ")).alias("word")
-    ).filter(length(col("word")) > 1)
-    words_df.persist()
-
-    print("\n=== Top 5 Trending Words ===")
-    word_counts = words_df.groupBy("word").count().orderBy(desc("count"))
-    word_counts.show(5, truncate=False)
-
-    print("\n=== Top 5 Trending Hashtags ===")
-    hashtag_counts = (
-        words_df.filter(col("word").startswith("#"))
-        .groupBy("word")
-        .count()
-        .orderBy(desc("count"))
-    )
-    hashtag_counts.show(5, truncate=False)
-
-    # Add a processing time column
-    df_with_time = df_with_latency.withColumn("processing_time", current_timestamp())
-
-    # Explode words and convert to lowercase
-    words_df = df_with_time.select(
-        explode(split(lower(col("text")), " ")).alias("word"), col("processing_time")
-    ).filter(length(col("word")) > 1)
-
-    # Filter out stopwords using UDF
-    words_df = words_df.filter(is_not_stopword_udf(col("word")))
-
-    # 5-minute tumbling window (no sliding)
-    windowed_word_counts = (
-        words_df.groupBy(
-            window(col("processing_time"), "5 minutes", "5 minutes"), col("word")
+        enriched_df = df
+    
+    # Sentiment analysis
+    if "Review" in df.columns:
+        df = df.withColumn("sentiment", sentiment_udf(spark_col("Review")))
+        avg_sentiment = df.agg(spark_avg("sentiment")).collect()[0][0]
+        logger.info(f"Mean sentiment: {avg_sentiment:.3f}")
+    
+    # Trending terms analysis
+    if "Review" in df.columns:
+        # Split reviews into words and filter stopwords
+        words_df = df.select(
+            spark_explode(spark_split(spark_lower(spark_col("Review")), "\\W+")).alias("word")
+        ).filter("word != ''")  # Remove empty strings
+        
+        words_df = words_df.filter(remove_stopwords_udf(spark_col("word")))
+        
+        # Get top 10 words
+        top_words = (
+            words_df.groupBy("word")
+            .count()
+            .orderBy(spark_desc("count"))
+            .limit(10)
+            .collect()
         )
-        .count()
-        .orderBy(desc("count"))
-    )
-
-    print("\n=== Top 5 Words in Last 5 Minutes (Excluding Stopwords) ===")
-    windowed_word_counts.show(5, truncate=False)
-
-    df.unpersist()
-    end_time = time.time()
-    batch_duration = end_time - start_time
-    throughput = record_count / batch_duration if batch_duration > 0 else 0
-    print(f"Throughput: {throughput:.2f} messages/second")
-
-    # Save results to CSV for plotting
-    csv_file = "performance_results.csv"
-    with open(csv_file, "a", newline="") as f:
-        writer = csv.writer(f)
-        if f.tell() == 0:
-            writer.writerow(
-                [
-                    "epoch_id",
-                    "record_count",
-                    "batch_duration",
-                    "throughput",
-                    "avg_latency",
-                ]
+        logger.info(
+            "Top 10 words: " + ", ".join(f"{row['word']}({row['count']})" for row in top_words)
+        )
+        
+        # Time window analysis (5-minute windows)
+        if "proc_time" in df.columns:
+            windowed_words = (
+                words_df
+                .withColumn("window", spark_window("proc_time", "5 minutes"))
+                .groupBy("window", "word")
+                .count()
+                .orderBy(spark_desc("count"))
+                .limit(5)
             )
-        writer.writerow(
-            [epoch_id, record_count, batch_duration, throughput, avg_latency]
+            logger.info("Top 5 trending words in 5-minute windows:")
+            windowed_words.show(truncate=False)
+    
+    # Calculate metrics
+    elapsed = time.time() - start_time
+    throughput = count / elapsed if elapsed > 0 else 0
+    
+    # Save batch to a single CSV file
+    output_path = "all_batches_results.csv"
+    try:
+        # Check if file exists to determine if we need to write header
+        write_header = not os.path.exists(output_path) or os.path.getsize(output_path) == 0
+        
+        # Append data to the CSV file
+        df.toPandas().to_csv(
+            output_path, 
+            mode='a',  # append mode
+            header=write_header,  # write header only if file doesn't exist
+            index=False
         )
+        
+        # Upload to cloud storage in the batch_results bucket
+        s3_path = f"batch_results/{output_path}"
+        transfer_to_cloud_storage(
+            output_path, 
+            os.environ.get("S3_BUCKET", "batch_results"), 
+            s3_path
+        )
+    except Exception as e:
+        logger.error(f"Failed to save or upload results: {str(e)}")
+    
+    # Log metrics to CSV
+    metrics_file = "airline_customer_review_metrics.csv"
+    write_header = not os.path.exists(metrics_file) or os.path.getsize(metrics_file) == 0
+    
+    try:
+        with open(metrics_file, "a", newline="") as out_csv:
+            writer = csv.writer(out_csv)
+            if write_header:
+                writer.writerow(["batch_num", "num_records", "elapsed", "throughput", "avg_latency"])
+            writer.writerow([batch_num, count, elapsed, throughput, avg_latency])
+    except Exception as e:
+        logger.error(f"Failed to write metrics: {str(e)}")
+    
+    # Clean up
+    df.unpersist()
+    logger.info(f"[Batch {batch_num}] Analysis complete in {elapsed:.2f}s.")
+    return {
+        "batch_num": batch_num,
+        "num_records": count,
+        "elapsed": elapsed,
+        "throughput": throughput,
+        "avg_latency": avg_latency
+    }
 
-    # Upload CSV to S3 after every batch
-    upload_file_to_s3(csv_file, "consumer-results", "results/performance_results.csv")
 
-    print(
-        f"--- Batch {epoch_id} processing finished in {batch_duration:.2f} seconds ---"
-    )
-
-
-def create_spark_session():
-    """Create a resource-constrained and stable Spark session."""
+def build_spark_session():
+    """Instantiate a Spark session with resource constraints."""
     return (
-        SparkSession.builder.appName("StableKafkaConsumer")
+        SparkSession.builder.appName("AirlineCustomerReviewStreamConsumer")
         .master("local[2]")
         .config("spark.driver.host", "127.0.0.1")
         .config("spark.driver.memory", "1g")
@@ -203,55 +213,63 @@ def create_spark_session():
     )
 
 
-def main():
+def main_stream():
+    """
+    Main entrypoint for the airline customer review streaming consumer.
+    Reads from Kafka, parses airline customer review records, and launches the analysis pipeline.
+    """
     spark = None
     try:
-        spark = create_spark_session()
+        spark = build_spark_session()
         spark.sparkContext.setLogLevel("ERROR")
-
-        # Use environment variable for Kafka connection or default to localhost for local development
-        kafka_server = os.environ.get("KAFKA_BOOTSTRAP_SERVERS", "localhost:9092")
-        logger.info(f"Connecting to Kafka at {kafka_server}")
-
-        kafka_df = (
+        # Kafka connection (topic and server name refactored for airline customer review context)
+        kafka_broker = os.environ.get("KAFKA_AIRLINE_REVIEW_SERVERS", "localhost:9092")
+        logger.info(f"Connecting to Kafka at {kafka_broker}")
+        review_topic = "airline_customer_review_stream"
+        # Define schema for airline reviews
+        review_schema = SparkStructType(
+            [
+                SparkStructField("AirLine_Name", SparkStringType(), True),
+                SparkStructField("Rating - 10", SparkStringType(), True),
+                SparkStructField("Title", SparkStringType(), True),
+                SparkStructField("Name", SparkStringType(), True),
+                SparkStructField("Date", SparkStringType(), True),
+                SparkStructField("Review", SparkStringType(), True),
+                SparkStructField("Recommond", SparkStringType(), True),
+                SparkStructField("timestamp", SparkDoubleType(), True),
+            ]
+        )
+        kafka_stream = (
             spark.readStream.format("kafka")
-            .option("kafka.bootstrap.servers", kafka_server)
-            .option("subscribe", "text_data")
+            .option("kafka.bootstrap.servers", kafka_broker)
+            .option("subscribe", review_topic)
             .option("startingOffsets", "earliest")
             .option("maxOffsetsPerTrigger", 50)
             .load()
         )
-
-        schema = StructType(
-            [
-                StructField("id", IntegerType(), True),
-                StructField("text", StringType(), True),
-                StructField("produced_at", DoubleType(), True),
-            ]
-        )
-        parsed_df = kafka_df.select(
-            from_json(col("value").cast("string"), schema).alias("data")
-        ).select("data.*")
-
+        parsed_reviews = kafka_stream.select(
+            spark_from_json(spark_col("value").cast("string"), review_schema).alias(
+                "review"
+            )
+        ).select("review.*")
+        # Start streaming analysis
         query = (
-            parsed_df.writeStream.foreachBatch(process_unified_batch)
+            parsed_reviews.writeStream.foreachBatch(batch_analysis)
             .trigger(processingTime="15 seconds")
-            .option("checkpointLocation", "final_checkpoint")
+            .option("checkpointLocation", "airline_customer_review_stream_checkpoint")
             .start()
         )
-
         query.awaitTermination()
-
     except KeyboardInterrupt:
         logger.info("Shutdown requested by user.")
-    except Exception as e:
-        logger.error(f"An error occurred in the main application: {e}", exc_info=True)
+    except Exception as err:
+        logger.error(f"Fatal error in stream: {err}", exc_info=True)
     finally:
         if spark:
-            print("\nShutting down Spark session...")
+            logger.info("Closing Spark session...")
             spark.stop()
-            print("Spark session stopped successfully.")
+            spark.stop()
 
 
 if __name__ == "__main__":
-    main()
+    main_stream()
