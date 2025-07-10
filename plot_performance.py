@@ -1,5 +1,6 @@
 import pandas as pd
 import matplotlib.pyplot as plt
+from consumer.s3_upload_helper import upload_file_to_s3
 
 # Load performance data for airline customer review streaming pipeline
 perf_data = pd.read_csv("airline_customer_review_metrics.csv")
@@ -41,4 +42,9 @@ plt.suptitle(
 plt.tight_layout(rect=[0, 0.03, 1, 0.95])
 plt.savefig("stream_performance_summary.png", dpi=150)
 print("Saved performance summary as stream_performance_summary.png")
+upload_file_to_s3(
+    "stream_performance_summary.png",
+    "your-bucket-name",
+    "stream_performance_summary.png",
+)
 # plt.show()  # Uncomment for interactive review
