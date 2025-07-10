@@ -15,7 +15,7 @@ def upload_file_to_s3(local_file_path, bucket_name, s3_key):
             aws_session_token=AWS_SESSION_TOKEN,
             region_name=AWS_REGION
         )
-
+    
     s3_client = session.client('s3')
 
     try:
