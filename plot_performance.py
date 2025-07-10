@@ -2,26 +2,42 @@ import pandas as pd
 import matplotlib.pyplot as plt
 
 # Load performance data for airline customer review streaming pipeline
-perf_data = pd.read_csv("news_metrics.csv")
+perf_data = pd.read_csv("all_batches_results.csv")
 
-plt.style.use('ggplot')
+plt.style.use("ggplot")
 fig, plots = plt.subplots(1, 2, figsize=(13, 5))
 
 # Plot streaming throughput
-plots[0].plot(perf_data['batch_idx'], perf_data['throughput'], marker='o', color='teal', linewidth=2)
-plots[0].set_title('Batch-wise Stream Throughput')
-plots[0].set_xlabel('Batch Number')
-plots[0].set_ylabel('Records per Second')
-plots[0].grid(True, linestyle='-.', alpha=0.7)
+plots[0].plot(
+    perf_data["batch_idx"],
+    perf_data["throughput"],
+    marker="o",
+    color="teal",
+    linewidth=2,
+)
+plots[0].set_title("Batch-wise Stream Throughput")
+plots[0].set_xlabel("Batch Number")
+plots[0].set_ylabel("Records per Second")
+plots[0].grid(True, linestyle="-.", alpha=0.7)
 
 # Plot average ingestion delay
-plots[1].plot(perf_data['batch_idx'], perf_data['avg_delay'], marker='x', color='orange', linewidth=2)
-plots[1].set_title('Mean Ingestion Delay per Batch')
-plots[1].set_xlabel('Batch Number')
-plots[1].set_ylabel('Average Delay (seconds)')
-plots[1].grid(True, linestyle=':', alpha=0.5)
+plots[1].plot(
+    perf_data["batch_idx"],
+    perf_data["avg_delay"],
+    marker="x",
+    color="orange",
+    linewidth=2,
+)
+plots[1].set_title("Mean Ingestion Delay per Batch")
+plots[1].set_xlabel("Batch Number")
+plots[1].set_ylabel("Average Delay (seconds)")
+plots[1].grid(True, linestyle=":", alpha=0.5)
 
-plt.suptitle('Airline Customer Review Streaming Pipeline: Performance Overview', fontsize=15, fontweight='bold')
+plt.suptitle(
+    "Airline Customer Review Streaming Pipeline: Performance Overview",
+    fontsize=15,
+    fontweight="bold",
+)
 plt.tight_layout(rect=[0, 0.03, 1, 0.95])
 plt.savefig("stream_performance_summary.png", dpi=150)
 print("Saved performance summary as stream_performance_summary.png")
