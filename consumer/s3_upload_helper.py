@@ -1,18 +1,25 @@
 import boto3
-import logging
+import os
 
-def transfer_to_cloud_storage(local_data_file, target_bucket, cloud_storage_path):
-    """
-    Transfer a local data file (e.g., airline customer review analytics results) to a cloud storage bucket at the specified path.
-    Args:
-        local_data_file (str): Filesystem path to the local data file.
-        target_bucket (str): Name of the cloud storage bucket.
-        cloud_storage_path (str): Destination path within the bucket.
-    """
-    logger = logging.getLogger("cloud_storage_helper")
-    cloud_storage_client = boto3.client('s3')
+def upload_file_to_s3(local_file_path, bucket_name, s3_key):
+    """Upload a file to an S3 bucket."""
+    # TODO: get the credentials from the environment variables
+    AWS_ACCESS_KEY_ID = os.getenv('AWS_ACCESS_KEY_ID')
+    AWS_SECRET_ACCESS_KEY = os.getenv('AWS_SECRET_ACCESS_KEY')
+    AWS_SESSION_TOKEN = os.getenv('AWS_SESSION_TOKEN')
+    AWS_REGION = os.getenv('AWS_REGION')
+    
+    session = boto3.Session(
+            aws_access_key_id=AWS_ACCESS_KEY_ID,
+            aws_secret_access_key=AWS_SECRET_ACCESS_KEY,
+            aws_session_token=AWS_SESSION_TOKEN,
+            region_name=AWS_REGION
+        )
+    
+    s3_client = session.client('s3')
+
     try:
-        cloud_storage_client.upload_file(local_data_file, target_bucket, cloud_storage_path)
-        logger.info(f"Data file transferred to cloud storage: {local_data_file} -> {target_bucket}/{cloud_storage_path}")
-    except Exception as transfer_error:
-        logger.error(f"Cloud storage transfer failed for {local_data_file} to {target_bucket}/{cloud_storage_path}: {transfer_error}")
+        s3_client.upload_file(local_file_path, bucket_name, s3_key)
+        print(f"Uploaded {local_file_path} to s3://{bucket_name}/{s3_key}")
+    except Exception as e:
+        print(f"Failed to upload {local_file_path} to S3: {e}")
