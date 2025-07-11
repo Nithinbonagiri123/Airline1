@@ -1,0 +1,12 @@
+# Core dependencies for Airline Customer Review Streaming Pipeline
+pyspark==3.2.4          # Distributed data processing
+pandas                  # Data manipulation
+nltk==3.8.1             # NLP (sentiment, stopwords)
+matplotlib==3.8.3       # Plotting
+seaborn==0.13.2         # Enhanced plotting
+kafka-python            # Kafka client for producer/consumer
+boto3                   # AWS S3 integration
+kagglehub               # Kaggle dataset download
+python-dotenv==1.0.1    # Environment variable management
+requests                # HTTP requests (if needed)
+boto3==1.39.4
