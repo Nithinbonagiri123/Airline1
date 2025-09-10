@@ -97,7 +97,9 @@ def batch_analysis(df, batch_num):
     # Calculate latency if timestamp is present
     avg_latency = None
     if "timestamp" in df.columns:
-        latency_df = df.withColumn("latency", (time.time() - spark_col("timestamp")))
+        # Convert timestamp to proper format and calculate latency correctly
+        current_time = time.time()
+        latency_df = df.withColumn("latency", lit(current_time) - spark_col("timestamp"))
         avg_latency = latency_df.agg(spark_avg("latency")).collect()[0][0]
         logger.info(f"Average latency: {avg_latency:.2f} s")
         
@@ -223,7 +225,7 @@ def main_stream():
         spark = build_spark_session()
         spark.sparkContext.setLogLevel("ERROR")
         # Kafka connection (topic and server name refactored for airline customer review context)
-        kafka_broker = os.environ.get("KAFKA_AIRLINE_REVIEW_SERVERS", "localhost:9092")
+        kafka_broker = os.environ.get("KAFKA_NEWS_SERVERS", "localhost:9092")
         logger.info(f"Connecting to Kafka at {kafka_broker}")
         review_topic = "airline_customer_review_stream"
         # Define schema for airline reviews
@@ -267,7 +269,6 @@ def main_stream():
     finally:
         if spark:
             logger.info("Closing Spark session...")
-            spark.stop()
             spark.stop()
 
 

@@ -207,3 +207,15 @@ class S3Uploader:
 
 # Create a global instance
 s3_uploader = S3Uploader()
+
+def transfer_to_cloud_storage(local_path, bucket, s3_key):
+    """Simple function to upload a file to S3 with better error handling"""
+    try:
+        # Check if AWS credentials are available
+        if not all([os.getenv('AWS_ACCESS_KEY_ID'), os.getenv('AWS_SECRET_ACCESS_KEY')]):
+            print(f"⚠️ AWS credentials not configured. Skipping S3 upload for {local_path}")
+            return False
+        return s3_uploader.upload_file(local_path, bucket, s3_key)
+    except Exception as e:
+        print(f"❌ Failed to upload {local_path} to S3: {e}")
+        return False
