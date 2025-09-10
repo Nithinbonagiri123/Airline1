@@ -1,0 +1,11 @@
+id,text
+1,"This is a sample sentence for our project."
+2,"Kafka is a distributed streaming platform."
+3,"Spark is a unified analytics engine for large-scale data processing."
+4,"This is a positive and happy sentence."
+5,"This is a negative and sad sentence."
+6,"Let's count the words in this text."
+7,"Big data processing is interesting."
+8,"Real-time data streaming with Kafka and Spark."
+9,"Sentiment analysis is a common NLP task."
+10,"Another message to test our Kafka producer." 
